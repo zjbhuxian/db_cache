@@ -1,22 +1,29 @@
-# db_cache module used by opensips based version '2.4.6', aiming to store/fetch sip information
-# Usage:
-1) compile
-#$>/opensips-2.4.6/modules/db_cache/
-#$>make
+#db_cache module
+---
 
-2) install
-#$>cp db_cache.so ../opensips/lib64/opensips/modules
+### An opensips cache module
+Used by opensips based version '2.4.6', aiming to store/fetch sip information
+contact: zjbhuxian@gmail.com
 
-3):
-	a) loadmodule in opensips.cfg
+### Usage:
+1.compile
+->opensips-2.4.6/modules/db_cache/
+->make
+
+2.install
+->cp db_cache.so ../opensips/lib64/opensips/modules
+
+3.opensips.cfg
+
+	- loadmodule in opensips.cfg
 		loadmodule "db_cache.so"
 
-	b) configure mysql: db_url, sip_table, callid_table
+	- configure mysql: db_url, sip_table, callid_table
 		modparam("db_cache", "db_url", "mysql://opensips:opensipsrw@localhost/test")
 		modparam("db_cache", "sip_table", "sip_info")
 		modparam("db_cache", "callid_table", "callid_info")
 
-	c) call the exported functions
+	- call the exported functions
 		route{
 			if(is_method("INVITE")){
 				if(incoming from outside...){
@@ -54,7 +61,7 @@
 			}
 		}
 
-	d) tables...
+	- tables...
 		CREATE TABLE `sip_info`
 		(
 			`call_id` VARCHAR (255) NOT NULL,
