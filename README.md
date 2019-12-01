@@ -1,4 +1,4 @@
-#db_cache module
+# db_cache module
 ---
 
 ### An opensips cache module
