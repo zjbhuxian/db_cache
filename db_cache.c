@@ -118,6 +118,7 @@ static int fetch_ruser(struct sip_msg* _msg, const char* callid, const char* sip
 static int fetch_from(struct sip_msg* _msg, const char* callid, const char* sip_name, char* result);
 static int fetch_to(struct sip_msg* _msg, const char* callid, const char* sip_name, char* result);
 static int fetch_sdp(struct sip_msg* _msg, const char* callid, const char* sip_name, char* result);
+static int fetch_other(struct sip_msg* _msg, const char* callid, const char* sip_name, char* result);
 
 db_func_t db_funcs;	/* Database functions */
 db_key_t db_keys_sip[NR_KEYS_SIP];
@@ -150,6 +151,7 @@ static cmd_export_t cmds[] = {
 	{"fetch_from", (cmd_function)fetch_from, 3, fixup_param_func_fetch, 0, REQUEST_ROUTE|ONREPLY_ROUTE},
 	{"fetch_to", (cmd_function)fetch_to, 3, fixup_param_func_fetch, 0, REQUEST_ROUTE|ONREPLY_ROUTE},
 	{"fetch_sdp", (cmd_function)fetch_sdp, 3, fixup_param_func_fetch, 0, REQUEST_ROUTE|ONREPLY_ROUTE},
+	{"fetch_other", (cmd_function)fetch_other, 3, fixup_param_func_fetch, 0, REQUEST_ROUTE|ONREPLY_ROUTE},
 	{0, 0, 0, 0, 0, 0}
 };
 
@@ -496,6 +498,19 @@ static int fetch_handle(str* table, db_con_t* db_con, db_key_t* keys, db_op_t* o
 		return -1;
 	}
 
+	/*
+	 * DEBUG PRINT
+	*/
+	int i;
+	LM_DBG("fetch_handle:>>>>>>>>>>>>>>>>>>>>\n");
+	LM_DBG("fetch_handle, table=[%.*s]\n", table->len, table->s);
+	for(i = 0; i < n; ++i){
+		LM_DBG("fetch_handle, keys[%d] = [%.*s] = [%.*s]\n", i, keys[i]->len, keys[i]->s, vals[i].val.str_val.len, vals[i].val.str_val.s);
+	}
+	for(i = 0; i < nc; ++i){
+		LM_DBG("fetch_handle, cs[%d] = [%.*s]\n", i, cs[i]->len, cs[i]->s);
+	}
+
 	// use table
 	if(db_funcs.use_table(db_con, table) < 0){
 		LM_ERR("Failed to use_table [%s]\n", table->s);
@@ -507,6 +522,8 @@ static int fetch_handle(str* table, db_con_t* db_con, db_key_t* keys, db_op_t* o
 		LM_ERR("Failed to query.\n");
 		goto Err;
 	}
+	LM_DBG("fetch_handle: RES_ROW_N(*res) = [%d]\n", RES_ROW_N(*res));
+	LM_DBG("fetch_handle:<<<<<<<<<<<<<<<<<<<<<\n");
 	return 0;
 
 Err:
@@ -932,4 +949,9 @@ static int fetch_to(struct sip_msg* _msg, const char* callid, const char* sip_na
 static int fetch_sdp(struct sip_msg* _msg, const char* callid, const char* sip_name, char* result)
 {
 	return fetch_column(_msg, &sdp_column, callid, sip_name, result);
+}
+
+static int fetch_other(struct sip_msg* _msg, const char* callid, const char* sip_name, char* result)
+{
+	return fetch_column(_msg, &other_column, callid, sip_name, result);
 }
