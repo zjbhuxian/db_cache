@@ -263,6 +263,10 @@ static void destroy(void)
 
 static db_con_t* db_init(const str* db_url)
 {
+	if(!db_url || db_url->s == NULL || strcmp(db_url->s, "")==0 || db_url->len == 0){
+		LM_ERR("Failed to db_init in db_cache: db_url is NULL.\n");
+	}
+
 	if(db_funcs.init == 0){
 		LM_CRIT("Null database functions...\n");
 		goto Err;
@@ -283,8 +287,8 @@ Err:
 static void db_close(db_con_t* db_con)
 {
 	if(db_con && db_funcs.close){
-		db_funcs.close(db_con);
-		db_con = 0;
+		//db_funcs.close(db_con);
+		//db_con = 0;
 	}
 }
 
@@ -464,6 +468,7 @@ static int store_handle(str* table, db_key_t* keys, db_val_t* vals, int num_keys
 		LM_ERR("Failed to db_init.\n");
 		return -1;
 	}
+	LM_DBG("Get db_con [%p] in store_handle.\n", db_con);
 
 	// use table
 	if(db_funcs.use_table(db_con, table) < 0){
@@ -485,6 +490,7 @@ static int store_handle(str* table, db_key_t* keys, db_val_t* vals, int num_keys
 	
 Err:
 	if(db_con){
+		LM_DBG("Release db_con [%p] in store_handle.\n", db_con);
 		db_close(db_con);
 		db_con = NULL;
 	}
@@ -502,7 +508,6 @@ static int fetch_handle(str* table, db_con_t* db_con, db_key_t* keys, db_op_t* o
 	 * DEBUG PRINT
 	*/
 	int i;
-	LM_DBG("fetch_handle:>>>>>>>>>>>>>>>>>>>>\n");
 	LM_DBG("fetch_handle, table=[%.*s]\n", table->len, table->s);
 	for(i = 0; i < n; ++i){
 		LM_DBG("fetch_handle, keys[%d] = [%.*s] = [%.*s]\n", i, keys[i]->len, keys[i]->s, vals[i].val.str_val.len, vals[i].val.str_val.s);
@@ -523,7 +528,6 @@ static int fetch_handle(str* table, db_con_t* db_con, db_key_t* keys, db_op_t* o
 		goto Err;
 	}
 	LM_DBG("fetch_handle: RES_ROW_N(*res) = [%d]\n", RES_ROW_N(*res));
-	LM_DBG("fetch_handle:<<<<<<<<<<<<<<<<<<<<<\n");
 	return 0;
 
 Err:
@@ -642,6 +646,7 @@ static int fetch_callid(struct sip_msg* _msg, const char* callid, const char* ty
 		LM_ERR("Failed to db_init.\n");
 		goto Err;
 	}
+	LM_DBG("Get db_con [%p] in fetch_callid.\n", db_con);
 	
 	ret = fetch_handle(&callid_table, db_con, keys, ops, vals, cs, n, nc, &res);
 	if(ret < 0){
@@ -669,6 +674,7 @@ Err:
 	}
 
 	if(db_con){
+		LM_DBG("Close db_con [%p] in fetch_callid.\n", db_con);
 		db_close(db_con);
 		db_con = NULL;
 	}
@@ -883,6 +889,7 @@ static int fetch_column(struct sip_msg* _msg, str* column, const char* callid, c
 		LM_ERR("Failed to db_init.\n");
 		goto Err;
 	}
+	LM_DBG("Get db_con [%p] in fetch_column.\n", db_con);
 	
 	ret = fetch_handle(&sip_table, db_con, keys, ops, vals, cs, n, nc, &res);
 	if(ret < 0){
@@ -910,6 +917,7 @@ Err:
 	}
 
 	if(db_con){
+		LM_DBG("Close db_con [%p] in fetch_column.\n", db_con);
 		db_close(db_con);
 		db_con = NULL;
 	}
