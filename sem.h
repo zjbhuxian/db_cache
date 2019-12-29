@@ -2,7 +2,6 @@
 #define __SEM_H__
 
 #include "../../sr_module.h"
-//#include "../../mod_fix.h"
 #include <stdlib.h>
 #include <string.h>
 #include <sys/sem.h>
@@ -17,7 +16,7 @@ union semun
 };
 
 key_t get_key(int proj_id);
-int sem_init();
+int sem_init(int proj_id);
 void sem_p(int semid);
 void sem_v(int semid);
 void sem_destroy(int semid);

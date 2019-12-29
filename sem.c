@@ -20,6 +20,10 @@ key_t get_key(int proj_id)
 
 int sem_init(int proj_id)
 {
+	if(proj_id < 0){
+		LM_WARN("Proj_id < 0\n");
+		proj_id = 188;
+	}
 	key_t key = get_key(proj_id);
 	if(key == -1){
 		LM_ERR("Failed to get key.\n");

@@ -562,15 +562,13 @@ int fetch_callid(struct sip_msg *_msg, const char *onecallid, char *theothercall
 
 Err:
 	if(pdata)pdata = NULL;
-	if(data){
-		if(data[0]){
-			free(data[0]);
-			data[0] = NULL;
-		}
-		if(data[1]){
-			free(data[1]);
-			data[1] = NULL;
-		}
+	if(data[0]){
+		free(data[0]);
+		data[0] = NULL;
+	}
+	if(data[1]){
+		free(data[1]);
+		data[1] = NULL;
 	}
 	if(db){
 		sqlite3_close(db);
