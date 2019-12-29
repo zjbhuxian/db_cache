@@ -1,965 +1,2631 @@
-/**==============================================================================================
- * store/fetch module for opensips
- * created at 2019.11
- * =============================================================================================*/
-#include <stdio.h>
-#include <string.h>
-#include "../../db/db.h"
-#include "../../str.h"
+/** =================================================================
+ * For store/fetch information of SIP via DB sqlite3
+ * Created by zhou at 2019
+ * ==================================================================*/
 #include "../../sr_module.h"
+#include "sqlite3.h"
+#include <string.h>
+#include <stdlib.h>
+#include <pthread.h>
 #include "../../mod_fix.h"
-#include "../../msg_translator.h"
-#include "../../parser/parse_content.h"
-#include "../../parser/parse_from.h"
-#include "../../parser/parse_to.h"
-#include "../../parser/parse_uri.h"
-#include "../../parser/parse_pai.h"
-#include "db_cache.h"
+#include "../../mem/mem.h"
+#include "../../pvar.h"
+#include "tools.h"
+#include "sem.h"
 
-#define EMPTY_STR(val) val.s=""; val.len=0;
+static int mod_init(void); /* Module initialization function */
+void mod_destroy(void); /* Module initialization function */
 
-#define SIP_TABLE				"sip_info"
-#define CALLID_TABLE		"callid_info"
-#define NR_KEYS_SIP				12
-#define NR_KEYS_CALLID		2	
+static int semid = 0;
+static int proj_id = 188;
 
-#define CALLID_COL			"call_id"
-#define SIPNAME_COL			"sip_name"
-#define SRCIP_COL				"src_ip"
-#define RURI_COL				"r_uri"
-#define RUSER_COL				"r_user"
-#define FROMURI_COL			"from_uri"
-#define TOURI_COL				"to_uri"
-#define ROUTE_COL				"route"
-#define SDP_COL					"sdp"
-#define PAI_COL					"pai"
-#define PANI_COL				"pani"
-#define OTHER_COL				"other"
+void lock_handle(const char* fun);
+void unlock_handle(const char* fun);
 
-#define INCALLID_COL		"in_callid"
-#define OUTCALLID_COL		"out_callid"
-
-static str db_url = STR_NULL;
-static str sip_table = STR_NULL;
-static str callid_table = STR_NULL;
-
-/*! \brief sip_table
- * Columns of sip_table;
+/* 
+ * Module export variables 
  */
-static str callid_column = str_init(CALLID_COL);
-static str sipname_column = str_init(SIPNAME_COL);
-static str srcip_column = str_init(SRCIP_COL);
-static str ruri_column = str_init(RURI_COL);
-static str ruser_column = str_init(RUSER_COL);
-static str fromuri_column = str_init(FROMURI_COL);
-static str touri_column = str_init(TOURI_COL);
-static str route_column = str_init(ROUTE_COL);
-static str sdp_column = str_init(SDP_COL);
-static str pai_column = str_init(PAI_COL);
-static str pani_column = str_init(PANI_COL);
-static str other_column = str_init(OTHER_COL);
+static char *db_file = 0;
+const char *table_header = "tb_";
 
-/*! \brief callid_table
- * Columns of callid_table
+/*===================================================================================================
+ * ver.1.0: store information by SIP-header-field
+ *===================================================================================================*/
+static int store_handle(const char *sql);
+static int fetch_handle(const char *sql, char *ret);
+
+static int store_header_field(struct sip_msg *_msg,
+				const char *callid,
+				const char *method, // INVITE, 180, 183, 200,...
+				const char *hfname, // FROM, TO, ROUTE, SDP,...
+				const char *hfcontext);	// CONTEXT of header-field to store
+
+static int fetch_header_field(struct sip_msg *_msg,
+				const char *callid,
+				const char *method, // INVITE, 180, 183, 200,...
+				const char *hfname, // FROM, TO, ROUTE, SDP,...
+				char *hfcontext);   // CONTEXT to fetch
+
+static int store_callid(struct sip_msg *_msg, const char *incallid, const char *outcallid);
+static int fetch_callid(struct sip_msg *_msg, const char *onecallid, char *theothercallid);
+static int store_sdp(struct sip_msg *_msg, const char *callid,  const char *type, const char *sdp);
+static int fetch_sdp(struct sip_msg *_msg, const char *callid, const char *type, char *sdp);
+static int store_route(struct sip_msg *_msg, const char *callid, const char *type, const char *route);
+static int fetch_route(struct sip_msg *_msg, const char *callid, const char *type, char *route);
+static int store_srcip(struct sip_msg *_msg, const char *callid, const char *type, const char *ip);
+static int fetch_srcip(struct sip_msg *_msg, const char *callid, const char *type, char *ip);
+static int store_destip(struct sip_msg *_msg, const char *callid,  const char *type, const char *ip);
+static int fetch_destip(struct sip_msg *_msg, const char *callid, const char *type, char *ip);
+static int store_from(struct sip_msg *_msg, const char *callid,  const char *type, const char *from);
+static int fetch_from(struct sip_msg *_msg, const char *callid, const char *type, char *from);
+static int store_to(struct sip_msg *_msg, const char *callid,  const char *type, const char *to);
+static int fetch_to(struct sip_msg *_msg, const char *callid, const char *type, char *to);
+static int store_pai(struct sip_msg *_msg, const char *callid,  const char *type, const char *pai);
+static int fetch_pai(struct sip_msg *_msg, const char *callid, const char *type, char *pai);
+static int store_bypass(struct sip_msg *_msg, const char *callid,  const char *type, const char *bypass);
+static int fetch_bypass(struct sip_msg *_msg, const char *callid, const char *type, char *bypass);
+static int store_pani(struct sip_msg *_msg, const char *callid,  const char *type, const char *pnai);
+static int fetch_pani(struct sip_msg *_msg, const char *callid, const char *type, char *pnai);
+static int store_ruser(struct sip_msg *_msg, const char *callid,  const char *type, const char *ruser);
+static int fetch_ruser(struct sip_msg *_msg, const char *callid, const char *type, char *ruser);
+
+/*======================================================================================================
+ * Ver.2.0: store information by SIP-Method
+ *=====================================================================================================*/ 
+/* Store information of INVITE */
+static int store_invite(struct sip_msg *_msg, const char *callid, const char *srcip, const char *ruri, 
+			const char *from, const char *to, const char *route, const char *sdp, const char *pai, 
+			const char *bypass, const char *servicetype, const char *other);
+/* Store information of 180 */
+static int store_180(struct sip_msg *_msg, const char *callid, const char *from, const char *to,
+		     const char *sdp, const char *other);
+/* Store information of 183 */
+static int store_183(struct sip_msg *_msg, const char *callid, const char *from, const char *to,
+		     const char *sdp, const char *other);
+/* Store information of 200 */
+static int store_200(struct sip_msg *_msg, const char *callid, const char *from, const char *fromtag, 
+		     const char *totag, const char *to, const char *sdp, const char *other);
+/* Store information of UPDATE */
+static int store_update(struct sip_msg *_msg, const char *callid, const char *from, const char *to,
+			const char *sdp, const char *other);
+/* Fetch information from INVITE */
+static int fetch_invite(struct sip_msg *_msg, const char *callid, const char *type, char *ret);
+/* Fetch information from 180 */
+static int fetch_180(struct sip_msg *_msg, const char *callid, const char *type, char *ret);
+/* Fetch information from 183 */
+static int fetch_183(struct sip_msg *_msg, const char *callid, const char *type, char *ret);
+/* Fetch information from 200 */
+static int fetch_200(struct sip_msg *_msg, const char *callid, const char *type, char *ret);
+/* Fetch information from UPDATE */
+static int fetch_update(struct sip_msg *_msg, const char *callid, const char *type, char *ret);
+
+/**
+ * Convert string to gparam_p
  */
-static str incallid_column = str_init(INCALLID_COL);
-static str outcallid_column = str_init(OUTCALLID_COL);
+static int fixup_param_func_store_callid(void **param, int param_no);
+static int fixup_param_func_fetch_callid(void **param, int param_no);
+static int fixup_param_func_store_sdp(void **param, int param_no);
+static int fixup_param_func_fetch_sdp(void **param, int param_no);
+static int fixup_param_func_store_invite(void **param, int param_no);
+static int fixup_param_func_store_18x(void **param, int param_no);
+static int fixup_param_func_store_200(void **param, int param_no);
 
-/*! \brief Database functions
- * init/close
- */
-static db_con_t* db_init(const str* db_url);
-static void db_close(db_con_t* dbh);
-//static void free_res(db_res_t* res);
+/* SQL string for CREATE TABLE tb_callid to store relationship of incoming cal with outgoing call */
+const char *sql_create_tb_callid = "CREATE TABLE IF NOT EXISTS tb_callid(incallid text, outcallid text)";
 
-/*! \brief
- * Fixup parameters
- */
-static int fixup_param_func_store_test(void** param, int param_no);
-static int fixup_param_func_store_callid(void** param, int param_no);
-static int fixup_param_func_fetch_callid(void** param, int param_no);
-static int fixup_param_func_store_sip(void** param, int param_no);
-static int fixup_param_func_fetch(void** param, int param_no);
+/* SQL string for CREATE TABLE tb_sdpinvite to store SDP information of INVITE */
+const char *sql_create_tb_sdpinvite = "CREATE TABLE IF NOT EXISTS tb_sdpinvite(callid text primary key, sdp text)";
 
-/*! \brief
- * Module init/destory
- */
-static int mod_init(void);
-static void destroy(void);
+/* SQL string for CREATE TABLE tb_sdp183 to store SDP information of 183 */
+const char *sql_create_tb_sdp183 = "CREATE TABLE IF NOT EXISTS tb_sdp183(callid text primary key, sdp text)";
 
-/*! \brief
- * For test
- */
-static int store_fetch_test_f(struct sip_msg* _msg, const char* pvk, char* pvv, const char* num);
+/* SQL string for CREATE TABLE tb_sdp180 to store SDP information of 180 */
+const char *sql_create_tb_sdp180 = "CREATE TABLE IF NOT EXISTS tb_sdp180(callid text primary key, sdp text)";
 
-/*! \brief 
- * Handle process for storing/fetching
- */
-static int store_handle(str* table, db_key_t* keys, db_val_t* vals, int num_keys);
-static int fetch_column(struct sip_msg* _msg, str* column, const char* callid, const char* sip_name, char* result);
-static int fetch_handle(str* table, db_con_t* db_con, db_key_t* keys, db_op_t* ops, db_val_t* vals, db_key_t* cs, int n, int nc, db_res_t** res);
+/* SQL string for CREATE TABLE tb_sdp200 to store SDP information of 200 */
+const char *sql_create_tb_sdp200 = "CREATE TABLE IF NOT EXISTS tb_sdp200(callid text primary key, sdp text)";
 
-/*! \brief
- * Fixup values for storing
- */
-static int fixup_callid_values(str* sin, str* sout, void** pval);
-static int set_output_val(struct sip_msg* _msg, db_res_t* res, char* ret);
+/* SQL string for CREATE TABLE tb_routeinvite to store Route information of invite */
+const char *sql_create_tb_routeinvite = "CREATE TABLE IF NOT EXISTS tb_routeinvite(callid text primary key, route text)";
+const char *sql_create_tb_routecancel = "CREATE TABLE IF NOT EXISTS tb_routecancel(callid text primary key, route text)";
+const char *sql_create_tb_srcipinvite = "CREATE TABLE IF NOT EXISTS tb_srcipinvite(callid text primary key, srcip text)";
+const char *sql_create_tb_destipinvite = "CREATE TABLE IF NOT EXISTS tb_destipinvite(callid text primary key, destip text)";
+const char *sql_create_tb_frominvite = "CREATE TABLE IF NOT EXISTS tb_frominvite(callid text primary key, _from text)";
+const char *sql_create_tb_toinvite = "CREATE TABLE IF NOT EXISTS tb_toinvite(callid text primary key, _to text)";
+const char *sql_create_tb_pai = "CREATE TABLE IF NOT EXISTS tb_pai(callid text primary key, pai text)";
+const char *sql_create_tb_bypass = "CREATE TABLE IF NOT EXISTS tb_bypass(callid text primary key, bypass text)";
+const char *sql_create_tb_pani = "CREATE TABLE IF NOT EXISTS tb_pani(callid text primary key, pani text)";
+const char *sql_create_tb_ruser = "CREATE TABLE IF NOT EXISTS tb_ruser(callid text primary key, ruser text)";
 
-/*! \brief
- *  Exported functions
- */
-static int store_callid(struct sip_msg* _msg, const char* incallid, const char* outcallid);
-static int fetch_callid(struct sip_msg* _msg, const char* callid, const char* type, char* theothercallid);
-static int store_sip(struct sip_msg* _msg, const char* src_ip, const char* route, const char* sdp, const char* pani, const char* other);
-static int fetch_route(struct sip_msg* _msg, const char* callid, const char* sip_name, char* route);
-static int fetch_pai(struct sip_msg* _msg, const char* callid, const char* sip_name, char* pai);
-static int fetch_pani(struct sip_msg* _msg, const char* callid, const char* sip_name, char* pani);
-static int fetch_ruser(struct sip_msg* _msg, const char* callid, const char* sip_name, char* ruser);
-static int fetch_from(struct sip_msg* _msg, const char* callid, const char* sip_name, char* result);
-static int fetch_to(struct sip_msg* _msg, const char* callid, const char* sip_name, char* result);
-static int fetch_sdp(struct sip_msg* _msg, const char* callid, const char* sip_name, char* result);
-static int fetch_other(struct sip_msg* _msg, const char* callid, const char* sip_name, char* result);
+/* SQL string for CREATE TABLE tb_invite to store information of INVITE */
+const char *sql_create_tb_invite = "CREATE TABLE IF NOT EXISTS tb_invite(callid text primary key,	\
+									 _srcip text, 			\
+									 _ruri text, 			\
+									 _from text, 			\
+									 _to text, 			\
+									 _route text, 			\
+									 _sdp text, 			\
+									 _pai text, 			\
+									 _bypass text,	 		\
+									 _servicetype text,		\
+									 _other text)";
 
-db_func_t db_funcs;	/* Database functions */
-db_key_t db_keys_sip[NR_KEYS_SIP];
-db_key_t db_keys_callid[NR_KEYS_CALLID];
+/* SQL string for CREATE TABLE tb_180 to store information of 180 message */
+const char *sql_create_tb_180 = "CREATE TABLE IF NOT EXISTS tb_180(callid text primary key, 		\
+								   _from text, 				\
+								   _to text, 				\
+								   _sdp text, 				\
+								   _other text)";
 
-/*! \brief
- *  Exported parameters
- */
-static param_export_t params[] = {
-	{"db_url", STR_PARAM, &db_url.s	},
-	{"sip_table", STR_PARAM, &sip_table.s	},
-	{"callid_table", STR_PARAM, &callid_table.s	},
+/* SQL string for CREATE TABLE tb_183 to store information of 183 message */
+const char *sql_create_tb_183 = "CREATE TABLE IF NOT EXISTS tb_183(callid text primary key, 		\
+								   _from text, 				\
+								   _to text, 				\
+								   _sdp text, 				\
+								   _other text)";
+
+/* SQL string for CREATE TABLE tb_200 to store information of 200 message */
+const char *sql_create_tb_200 = "CREATE TABLE IF NOT EXISTS tb_200(callid text primary key, 		\
+								   _from text, 				\
+								   _fromtag text,			\
+								   _to text, 				\
+								   _totag text,				\
+								   _sdp text, 				\
+								   _other text)";
+
+/* SQL string for CREATE TABLE tb_update to store information of update message */
+const char *sql_create_tb_update = "CREATE TABLE IF NOT EXISTS tb_update(callid text primary key, 	\
+								   _from text, 				\
+								   _to text, 				\
+								   _sdp text, 				\
+								   _other text)";
+
+/* Initialize database */
+static int init_db(void);
+
+/* callback for query data from database */
+static int cb_query(void *data, int argc, char **argv, char **azColName);
+static int cb_query_callid(void *data, int argc, char **argv, char **azColName);
+
+/* fixup_get_svalue */
+static char *get_svalue(struct sip_msg *_msg, gparam_p _str);
+
+char *get_svalue(struct sip_msg *_msg, gparam_p _str)
+{
+	char *s;
+	int len;
+	str s0;
+
+	if(parse_headers(_msg, HDR_EOH_F, 0) == -1){
+		LM_ERR("error while parsing message\n");
+		return NULL;
+	}
+
+	if(_str){
+		if(fixup_get_svalue(_msg, _str, &s0) != 0){
+			LM_ERR("####### cannot print the format\n");
+			return NULL;
+		}
+	}else{
+		s0.len = 0;
+		s0.s   = 0;
+	}
+
+	len = s0.len; // Not including null-termination
+	s = (char *)pkg_malloc(len+1);
+	if(!s){
+		LM_ERR("####### no pkg memory left\n");
+		return NULL;
+	}
+
+	memset(s, 0x00, len+1);
+	memcpy(s, s0.s, len);
+	s[len] = '\0';
+	LM_INFO("###### s = [%s] with len [%d], type = [%d].\n", s,len, _str->type);
+
+	return s;
+}
+
+
+int cb_query(void *data, int argc, char **argv, char **azColName)
+{
+	size_t len = 0;
+	if(argc > 0 && argv != NULL){
+		len = strlen(argv[0]);
+		if(len > 0){
+			memcpy(data, argv[0], len);	
+			((char *)data)[len]='\0';
+			LM_INFO("########## queried data [%s] with length [%zu].\n", (char *)data, len);
+		}
+	}
+	return 0;
+}
+
+int cb_query_callid(void *data, int argc, char **argv, char **azColName)
+{
+	size_t len1 = 0;
+	size_t len2 = 0;
+	if(argc > 0 && argv != NULL){
+		len1 = strlen(argv[0]);
+		if(len1 > 0){
+			if(((char**)data)[0] != NULL){
+				memcpy(((char **)data)[0], argv[0], len1);
+				((char **)data)[0][len1] = '\0';
+			}	
+		}
+		if(argc > 1){
+			len2 = strlen(argv[1]);
+			if(len2 > 0){
+				if(((char**)data)[1] != NULL){
+					memcpy(((char **)data)[1], argv[1], len2);
+					((char **)data)[1][len2] = '\0';
+				}	
+			}
+		}
+	}
+	return 0;
+}
+
+int init_db(void)
+{
+	if(!db_file){
+		LM_ERR("########## Invalid db_file\n");
+		return 1;
+	}
+
+	int 	retcode;
+	sqlite3 *db = 0;
+	char 	*errMsg = "";
+
+	retcode = sqlite3_open(db_file, &db);
+	if(retcode != SQLITE_OK){
+		sqlite3_close(db);
+		LM_ERR("############ Could not open db_file [%s]\n", db_file);
+		return 1;
+	}	
+	
+	sqlite3_exec(db, sql_create_tb_callid, NULL, NULL, &errMsg);
+	if(errMsg == NULL){
+		LM_INFO("###### Successed to create TABLE tb_callid.\n");
+	}else{
+		LM_ERR("####### Failed to create TABLE tb_callid, error msg [%s].\n", errMsg);
+	}
+
+	sqlite3_exec(db, sql_create_tb_sdpinvite, NULL, NULL, &errMsg);
+	if(errMsg == NULL){
+		LM_INFO("###### Successed to create TABLE tb_sdpinvite.\n");
+	}else{
+		LM_ERR("####### Failed to create TABLE tb_sdpinvite, error msg [%s].\n", errMsg);
+	}
+
+	sqlite3_exec(db, sql_create_tb_sdp200, NULL, NULL, &errMsg);
+	if(errMsg == NULL){
+		LM_INFO("###### Successed to create TABLE tb_sdp200.\n");
+	}else{
+		LM_ERR("####### Failed to create TABLE tb_sdp200, error msg [%s].\n", errMsg);
+	}
+
+	sqlite3_exec(db, sql_create_tb_sdp180, NULL, NULL, &errMsg);
+	if(errMsg == NULL){
+		LM_INFO("###### Successed to create TABLE tb_sdp180.\n");
+	}else{
+		LM_ERR("####### Failed to create TABLE tb_sdp180, error msg [%s].\n", errMsg);
+	}
+
+	sqlite3_exec(db, sql_create_tb_sdp183, NULL, NULL, &errMsg);
+	if(errMsg == NULL){
+		LM_INFO("###### Successed to create TABLE tb_sdp183.\n");
+	}else{
+		LM_ERR("####### Failed to create TABLE tb_sdp183, error msg [%s].\n", errMsg);
+	}
+
+	sqlite3_exec(db, sql_create_tb_routeinvite, NULL, NULL, &errMsg);
+	if(errMsg == NULL){
+		LM_INFO("###### Successed to create TABLE tb_routeinvite.\n");
+	}else{
+		LM_ERR("####### Failed to create TABLE tb_routeinvite, error msg [%s].\n", errMsg);
+	}
+
+	sqlite3_exec(db, sql_create_tb_routecancel, NULL, NULL, &errMsg);
+	if(errMsg == NULL){
+		LM_INFO("###### Successed to create TABLE tb_routecancel.\n");
+	}else{
+		LM_ERR("####### Failed to create TABLE tb_routecancel, error msg [%s].\n", errMsg);
+	}
+
+	sqlite3_exec(db, sql_create_tb_srcipinvite, NULL, NULL, &errMsg);
+	if(errMsg == NULL){
+		LM_INFO("###### Successed to create TABLE tb_srcipinvite.\n");
+	}else{
+		LM_ERR("####### Failed to create TABLE tb_srcipinvite, error msg [%s].\n", errMsg);
+	}
+
+	sqlite3_exec(db, sql_create_tb_destipinvite, NULL, NULL, &errMsg);
+	if(errMsg == NULL){
+		LM_INFO("###### Successed to create TABLE tb_destipinvite.\n");
+	}else{
+		LM_ERR("####### Failed to create TABLE tb_destipinvite, error msg [%s].\n", errMsg);
+	}
+
+	sqlite3_exec(db, sql_create_tb_frominvite, NULL, NULL, &errMsg);
+	if(errMsg == NULL){
+		LM_INFO("###### Successed to create TABLE tb_frominvite.\n");
+	}else{
+		LM_ERR("####### Failed to create TABLE tb_frominvite, error msg [%s].\n", errMsg);
+	}
+
+	sqlite3_exec(db, sql_create_tb_toinvite, NULL, NULL, &errMsg);
+	if(errMsg == NULL){
+		LM_INFO("###### Successed to create TABLE tb_toinvite.\n");
+	}else{
+		LM_ERR("####### Failed to create TABLE tb_toinvite, error msg [%s].\n", errMsg);
+	}
+
+	sqlite3_exec(db, sql_create_tb_pai, NULL, NULL, &errMsg);
+	if(errMsg == NULL){
+		LM_INFO("###### Successed to create TABLE tb_pai.\n");
+	}else{
+		LM_ERR("####### Failed to create TABLE tb_pai, error msg [%s].\n", errMsg);
+	}
+
+	sqlite3_exec(db, sql_create_tb_bypass, NULL, NULL, &errMsg);
+	if(errMsg == NULL){
+		LM_INFO("###### Successed to create TABLE tb_bypass.\n");
+	}else{
+		LM_ERR("####### Failed to create TABLE tb_bypass, error msg [%s].\n", errMsg);
+	}
+
+	sqlite3_exec(db, sql_create_tb_pani, NULL, NULL, &errMsg);
+	if(errMsg == NULL){
+		LM_INFO("###### Successed to create TABLE tb_pani.\n");
+	}else{
+		LM_ERR("####### Failed to create TABLE tb_pani, error msg [%s].\n", errMsg);
+	}
+
+	sqlite3_exec(db, sql_create_tb_ruser, NULL, NULL, &errMsg);
+	if(errMsg == NULL){
+		LM_INFO("###### Successed to create TABLE tb_ruser.\n");
+	}else{
+		LM_ERR("####### Failed to create TABLE tb_ruser, error msg [%s].\n", errMsg);
+	}
+
+	sqlite3_exec(db, sql_create_tb_invite, NULL, NULL, &errMsg);
+	if(errMsg == NULL){
+		LM_INFO("###### Successed to create TABLE tb_invite.\n");
+	}else{
+		LM_ERR("####### Failed to create TABLE tb_invite, error msg [%s].\n", errMsg);
+	}
+
+	sqlite3_exec(db, sql_create_tb_180, NULL, NULL, &errMsg);
+	if(errMsg == NULL){
+		LM_INFO("###### Successed to create TABLE tb_180.\n");
+	}else{
+		LM_ERR("####### Failed to create TABLE tb_180, error msg [%s].\n", errMsg);
+	}
+		
+	sqlite3_exec(db, sql_create_tb_183, NULL, NULL, &errMsg);
+	if(errMsg == NULL){
+		LM_INFO("###### Successed to create TABLE tb_183.\n");
+	}else{
+		LM_ERR("####### Failed to create TABLE tb_183, error msg [%s].\n", errMsg);
+	}
+
+	sqlite3_exec(db, sql_create_tb_200, NULL, NULL, &errMsg);
+	if(errMsg == NULL){
+		LM_INFO("###### Successed to create TABLE tb_200.\n");
+	}else{
+		LM_ERR("####### Failed to create TABLE tb_200, error msg [%s].\n", errMsg);
+	}
+
+	sqlite3_exec(db, sql_create_tb_update, NULL, NULL, &errMsg);
+	if(errMsg == NULL){
+		LM_INFO("###### Successed to create TABLE tb_update.\n");
+	}else{
+		LM_ERR("####### Failed to create TABLE tb_update, error msg [%s].\n", errMsg);
+	}
+
+	sqlite3_close(db);
+	return 1;
+}
+
+int store_callid(struct sip_msg *_msg, const char *incallid, const char *outcallid)
+{
+	if(!db_file || !incallid || !outcallid){
+		LM_ERR("######## Invalid parameter.\n");
+		return 1;
+	}
+	char 	*_incallid = strlen(incallid) > 0 ? get_svalue(_msg, (gparam_p)incallid) : "";
+	char 	*_outcallid = strlen(outcallid) > 0 ? get_svalue(_msg, (gparam_p)outcallid) : "";
+
+	if(strcmp(_incallid, "")== 0 || strcmp(_outcallid, "") == 0){
+		LM_ERR("Invalid parameters.\n");
+		return 1;
+	}
+
+	char 	*sql = (char *)malloc(2048*sizeof(char));
+	memset(sql, 0x00, 2048*sizeof(char));
+
+	sqlite3 *db = 0;
+	int 	retcode;
+	char 	*errMsg = "";
+
+	LM_INFO("######## _incallid,_outcallid = [%s,%s]\n", _incallid, _outcallid);
+	sprintf(sql, "INSERT INTO tb_callid (incallid, outcallid) VALUES ('%s', '%s')", _incallid, _outcallid);
+	LM_INFO("####### sql: [%s]\n", sql);
+
+	lock_handle(__FUNCTION__);
+	retcode = sqlite3_open(db_file, &db);
+	if(retcode != SQLITE_OK){
+		LM_ERR("######## Could not open db_file [%s].\n", db_file);
+		unlock_handle(__FUNCTION__);
+		goto Err;
+	}
+
+	sqlite3_exec(db, sql, NULL, NULL, &errMsg);
+	if(errMsg == NULL){
+		LM_INFO("###### Successed to INSERT...\n");
+	}else{
+		LM_ERR("####### Failed to INSERT...[%s]\n", errMsg);
+	}	
+
+Err:
+	if(strlen(_incallid) > 0){
+		pkg_free(_incallid);	
+	}
+	if(strlen(_outcallid) > 0){
+		pkg_free(_outcallid);
+	}
+	if(sql!=NULL){
+		free(sql);
+		sql = NULL;
+	}
+	sqlite3_close(db);
+	unlock_handle(__FUNCTION__);
+	return 1;
+}
+
+int fetch_callid(struct sip_msg *_msg, const char *onecallid, char *theothercallid)
+{
+	if(!db_file || !onecallid || !theothercallid){
+		LM_ERR("####### Invalid parameters.\n");
+		return 1;
+	}
+
+	sqlite3 *db = 0;
+	int 	retcode = 0;
+	char 	*errMsg = "";
+	pv_spec_t *sp_dest;
+	pv_value_t value;
+	char 	*_onecallid = strlen(onecallid) > 0 ? get_svalue(_msg, (gparam_p)onecallid) : "";
+
+	size_t	sql_len = 2048 * sizeof(char);
+	char 	*sql = (char *)malloc(sql_len);
+	if(!sql){
+		LM_ERR("############ Failed to malloc memory\n");
+		return 1;
+	}else{
+		memset(sql, 0x00, sql_len);
+	}
+
+	size_t 	callid_len = 2048 * sizeof(char);
+	char 	*data[2] = {NULL};
+	char 	*pdata = NULL;
+	data[0] = (char *)malloc(callid_len);
+	data[1] = (char *)malloc(callid_len);
+	if(!data[0] || !data[1]){
+		LM_ERR("############ Failed to malloc memory\n");
+		goto Err;
+	}else{
+		memset(data[0], 0x00, callid_len);
+		memset(data[1], 0x00, callid_len);
+	}
+
+	sprintf(sql, "SELECT * FROM tb_callid WHERE incallid = '%s' or outcallid = '%s'", _onecallid, _onecallid);
+	LM_INFO("######## sql: [%s]\n", sql);
+
+	
+	lock_handle(__FUNCTION__);
+	retcode = sqlite3_open(db_file, &db);
+	if(retcode != SQLITE_OK){
+		LM_ERR("######## Could not open db_file [%s].\n", db_file);
+		unlock_handle(__FUNCTION__);
+		goto Err;
+	}
+
+	//sqlite3_exec(db, sql, cb_query, (void*)data, &errMsg);
+	sqlite3_exec(db, sql, cb_query_callid, (void*)data, &errMsg);
+	if(errMsg == NULL){
+		LM_INFO("####### Successed to query.\n");
+	}else{
+		LM_ERR("####### Failed to query [%s].\n", errMsg);
+	}
+
+	if(strcmp(_onecallid, data[0]) != 0){
+		pdata = data[0];
+	}else if(strcmp(_onecallid, data[1]) != 0){
+		pdata = data[1];
+	}else{
+		LM_ERR("###### Queried data was wrong...\n");
+		goto Err;
+	}
+
+	LM_INFO("######### query data [%s]\n", pdata);
+	value.rs.s = pdata;
+	value.rs.len = strlen(pdata);
+	value.flags = PV_VAL_STR;
+	sp_dest = (pv_spec_t *)theothercallid;
+	
+	if(pv_set_value(_msg, sp_dest, 0, &value) != 0){
+		LM_ERR("######## failed to set fetch callid\n");
+		goto Err;
+	}
+
+Err:
+	if(pdata)pdata = NULL;
+	if(data){
+		if(data[0]){
+			free(data[0]);
+			data[0] = NULL;
+		}
+		if(data[1]){
+			free(data[1]);
+			data[1] = NULL;
+		}
+	}
+	if(db){
+		sqlite3_close(db);
+		db = 0;
+	}
+	if(sql != NULL){
+		free(sql);
+		sql = NULL;
+	}
+	unlock_handle(__FUNCTION__);
+	return 1;
+}
+
+int store_sdp(struct sip_msg *_msg, const char *callid,  const char *type, const char *sdp)
+{
+	if(!db_file || !callid || !type || !sdp){
+		LM_ERR("###### Invalid parameters\n");
+		return -1;
+	}
+
+	char 	*_callid = strlen(callid) > 0 ? get_svalue(_msg, (gparam_p)callid) : "";
+	char 	*_sdp 	 = strlen(sdp) > 0 ? get_svalue(_msg, (gparam_p)sdp) : "";
+
+	if(strcmp(_callid, "") == 0 || strcmp(_sdp, "") == 0){
+		LM_ERR("Invalid parameters.\n");
+		return 1;
+	}
+
+	sqlite3	*db 	= 0;
+	int 	retcode = 0;
+	char 	*errMsg = "";
+	size_t	sql_len = 4096 * sizeof(char);
+	int 	iType 	= atoi(type);
+	char *sql = (char *)malloc(sql_len);
+
+	if(!sql){
+		LM_ERR("###### Failed to malloc memory.\n");
+		goto Err;
+	}
+
+	if(iType < 0 || iType > 3){
+		LM_ERR("###### Invalid Type.\n");
+		goto Err;
+	}
+
+	memset(sql, 0x00, sql_len);
+	if(iType == 0){ 	// tb_sdpinvite
+		sprintf(sql, "INSERT INTO tb_sdpinvite(callid, sdp) VALUES ('%s', '%s')", _callid, _sdp);
+	}else if(iType == 1){ 	// tb_sdp180
+		sprintf(sql, "INSERT INTO tb_sdp180(callid, sdp) VALUES ('%s', '%s')", _callid, _sdp);
+	}else if(iType == 2){	/// tb_sdp183
+		sprintf(sql, "INSERT INTO tb_sdp183(callid, sdp) VALUES ('%s', '%s')", _callid, _sdp);
+	}else if(iType == 3){   /// tb_sdp200
+		sprintf(sql, "INSERT INTO tb_sdp200(callid, sdp) VALUES ('%s', '%s')", _callid, _sdp);
+  }
+	LM_INFO("####### sql: [%s].\n", sql);
+
+	lock_handle(__FUNCTION__);
+	retcode = sqlite3_open(db_file, &db);
+	if(retcode != SQLITE_OK){
+		LM_ERR("###### Could not open db_file [%s].\n", db_file);
+		unlock_handle(__FUNCTION__);
+		goto Err;
+	}
+
+	sqlite3_exec(db, sql, NULL, NULL, &errMsg);
+	if(errMsg == NULL){
+		LM_INFO("###### Successed to INSERT.\n");
+	}else{
+		LM_ERR("###### Failed to INSERT [%s].\n", errMsg);
+	}
+
+Err:
+	if(strlen(_callid) > 0){
+		pkg_free(_callid);
+	}
+	if(strlen(_sdp) > 0){
+		pkg_free(_sdp);
+	}
+	if(sql != NULL){
+		free(sql);
+		sql = NULL;
+	}
+	sqlite3_close(db);
+	unlock_handle(__FUNCTION__);
+	return 1;
+}
+
+int fetch_sdp(struct sip_msg *_msg, const char *callid, const char *type, char *sdp)
+{
+	if(!db_file || !callid || !type || !sdp){
+		LM_ERR("###### Invalid parameters.\n");
+		return 1;
+	}
+	
+	sqlite3 *db = 0;
+	size_t	sql_len = 4096 * sizeof(char);
+	char	*sql = (char *)malloc(sql_len);
+	int 	retcode = 0;
+	char 	*errMsg = "";
+	size_t 	retLen = 0;
+	size_t 	sdp_len = 4096 * sizeof(char);
+	char 	*data = (char *)malloc(sdp_len);
+	pv_spec_t *sp_dest;
+	pv_value_t value;
+	char 	*_callid = strlen(callid) > 0 ? get_svalue(_msg, (gparam_p)callid) : "";
+	int 	iType = atoi(type);
+
+	if(!data || !sql){
+		LM_ERR("####### Failed to malloc memory.\n");
+		goto Err;
+	}
+
+	if(iType < 0 || iType > 3){
+		LM_ERR("###### Invalid Type.\n");
+		goto Err;
+	}
+
+	memset(sql, 0x00, sql_len);
+	if(iType == 0){
+		sprintf(sql, "SELECT sdp FROM tb_sdpinvite WHERE callid = '%s'", _callid);
+	}else if(iType == 1){
+		sprintf(sql, "SELECT sdp FROM tb_sdp180 WHERE callid = '%s'", _callid);
+	}else if(iType == 2){
+		sprintf(sql, "SELECT sdp FROM tb_sdp183 WHERE callid = '%s'", _callid);
+	}else if(iType == 3){
+                sprintf(sql, "SELECT sdp FROM tb_sdp200 WHERE callid = '%s'", _callid);
+        }
+	LM_INFO("####### sql: [%s].\n", sql);
+
+	lock_handle(__FUNCTION__);
+	retcode = sqlite3_open(db_file, &db);
+	if(retcode != SQLITE_OK){
+		LM_ERR("###### Could not open db_file [%s].\n", db_file);
+		unlock_handle(__FUNCTION__);
+		goto Err;
+	}
+
+	memset(data, 0x00, sdp_len);
+	sqlite3_exec(db, sql, cb_query, (void*)data, &errMsg);
+	if(errMsg == NULL){
+		LM_INFO("##### Successed to query.\n");
+	}else{
+		LM_ERR("###### Failed to query [%s].\n", errMsg);
+	}
+
+	retLen = strlen(data);
+	value.rs.s = data;
+	value.rs.len = retLen;
+	value.flags = PV_VAL_STR;
+	sp_dest = (pv_spec_t *)sdp;
+	
+	if(pv_set_value(_msg, sp_dest, 0, &value) != 0){
+		LM_ERR("######## failed to set fetch callid\n");
+		goto Err;
+	}
+
+Err:
+	if(data){
+		free(data);
+		data = NULL;
+	}
+	if(strlen(_callid) > 0){
+		pkg_free(_callid);
+		_callid = NULL;
+	}
+	if(sql != NULL){
+		free(sql);
+		sql = NULL;
+	}
+	sqlite3_close(db);
+	unlock_handle(__FUNCTION__);
+	return 1;
+}
+
+static int store_route(struct sip_msg *_msg, const char *callid,  const char *type, const char *route)
+{
+	if(!db_file || !callid || !type || !route){
+		LM_ERR("###### Invalid parameters\n");
+		return -1;
+	}
+
+	sqlite3	*db 	= 0;
+	char 	*_callid = strlen(callid) > 0 ? get_svalue(_msg, (gparam_p)callid) : "";
+	char 	*_route	 = strlen(route) > 0 ? get_svalue(_msg, (gparam_p)route) : "";
+
+	if(strcmp(_callid, "") == 0 || strcmp(_route, "") == 0){
+		LM_ERR("Invalid parameters.\n");
+		return 1;
+	}
+
+	int 	retcode = 0;
+	char 	*errMsg = "";
+	size_t	sql_len = 4096 * sizeof(char);
+	char 	*sql = (char *)malloc(sql_len);
+	int 	iType 	= atoi(type);
+
+	if(!sql){
+		LM_ERR("###### Failed to malloc memory.\n");
+		goto Err;
+	}
+	if(iType < 0 || iType > 1){
+		LM_ERR("###### Invalid Type.\n");
+		goto Err;
+	}
+	
+	memset(sql, 0x00, sql_len);
+	if(iType == 0){ 	// tb_routeinvite
+		sprintf(sql, "INSERT INTO tb_routeinvite(callid, route) VALUES ('%s', '%s')", _callid, _route);
+	}else if(iType == 1){	// tb_routecancel
+		sprintf(sql, "INSERT INTO tb_routecancel(callid, route) VALUES ('%s', '%s')", _callid, _route);
+	}else{
+		LM_ERR("###### Invalid Type[%d]\n", iType);
+		goto Err;
+	}
+	LM_INFO("####### sql: [%s].\n", sql);
+
+	lock_handle(__FUNCTION__);
+	retcode = sqlite3_open(db_file, &db);
+	if(retcode != SQLITE_OK){
+		LM_ERR("###### Could not open db_file [%s].\n", db_file);
+		goto Err;
+	}
+
+	sqlite3_exec(db, sql, NULL, NULL, &errMsg);
+	unlock_handle(__FUNCTION__);
+	if(errMsg == NULL){
+		LM_INFO("###### Successed to INSERT.\n");
+	}else{
+		LM_ERR("###### Failed to INSERT [%s].\n", errMsg);
+	}
+
+Err:
+	if(strlen(_callid) > 0){
+		pkg_free(_callid);
+	}
+	if(strlen(_route) > 0){
+		pkg_free(_route);
+	}
+	if(sql != NULL){
+		free(sql);
+		sql = NULL;
+	}
+	sqlite3_close(db);
+	unlock_handle(__FUNCTION__);
+	return 1;
+}
+
+static int fetch_route(struct sip_msg *_msg, const char *callid, const char *type, char *route)
+{
+	if(!db_file || !callid || !type || !route){
+		LM_ERR("###### Invalid parameters.\n");
+		return 1;
+	}
+	
+	sqlite3 *db = 0;
+	int 	retcode = 0;
+	char 	*errMsg = "";
+	size_t 	retLen = 0;
+	pv_spec_t *sp_dest;
+	pv_value_t value;
+	size_t	sql_len = 4096 * sizeof(char);
+	char 	*sql = (char *)malloc(sql_len);
+	size_t 	route_len = 2048 * sizeof(char);
+	char 	*data = (char *)malloc(route_len);
+	char 	*_callid = strlen(callid) > 0 ? get_svalue(_msg, (gparam_p)callid) : "";
+	int 	iType = atoi(type);
+
+	if(!sql || !data){
+		LM_ERR("####### Failed to malloc memory.\n");
+		goto Err;
+	}
+
+	if(iType < 0 || iType > 2){
+		LM_ERR("###### Invalid Type.\n");
+		goto Err;
+	}
+
+	memset(sql, 0x00, sql_len);
+	if(iType == 0){
+		sprintf(sql, "SELECT Route FROM tb_routeinvite WHERE callid = '%s'", _callid);
+	}else if(iType == 1){
+		sprintf(sql, "SELECT Route FROM tb_routecancel WHERE callid = '%s'", _callid);
+	}else{
+		LM_ERR("###### Invalid Type.[%d]\n", iType);
+		goto Err;
+	}
+	LM_INFO("####### sql: [%s].\n", sql);
+
+	lock_handle(__FUNCTION__);
+	retcode = sqlite3_open(db_file, &db);
+	if(retcode != SQLITE_OK){
+		LM_ERR("###### Could not open db_file [%s].\n", db_file);
+		unlock_handle(__FUNCTION__);
+		goto Err;
+	}
+
+	memset(data, 0x00, route_len);
+	sqlite3_exec(db, sql, cb_query, (void*)data, &errMsg);
+	if(errMsg == NULL){
+		LM_INFO("##### Successed to query.\n");
+	}else{
+		LM_ERR("###### Failed to query [%s].\n", errMsg);
+	}
+
+	retLen = strlen(data);
+	value.rs.s = data;
+	value.rs.len = retLen;
+	value.flags = PV_VAL_STR;
+	sp_dest = (pv_spec_t *)route;
+	
+	if(pv_set_value(_msg, sp_dest, 0, &value) != 0){
+		LM_ERR("######## failed to set fetch callid\n");
+		goto Err;
+	}
+
+Err:
+	if(data){
+		free(data);
+		data = NULL;
+	}
+	if(strlen(_callid) > 0){
+		pkg_free(_callid);
+		_callid = NULL;
+	}
+	if(sql != NULL){
+		free(sql);
+		sql = NULL;
+	}
+	sqlite3_close(db);
+	unlock_handle(__FUNCTION__);
+
+	return 1;
+}
+
+static int store_srcip(struct sip_msg *_msg, const char *callid,  const char *type, const char *ip)
+{
+	if(!db_file || !callid || !type || !ip){
+		LM_ERR("###### Invalid parameters\n");
+		return -1;
+	}
+
+	char 	*_callid = strlen(callid) > 0 ? get_svalue(_msg, (gparam_p)callid) : "";
+	char 	*_srcip	 = strlen(ip) > 0 ? get_svalue(_msg, (gparam_p)ip) : "";
+
+	if(strcmp(_callid, "") == 0 || strcmp(_srcip, "") == 0){
+		LM_ERR("Failed to store_srcip, invalid parameters.\n");
+		return 1;
+	}
+
+	sqlite3	*db 	= 0;
+	int 	retcode = 0;
+	char 	*errMsg = "";
+	size_t	sql_len = 4096 * sizeof(char);
+	char 	*sql = (char *)malloc(sql_len);
+	int 	iType 	= atoi(type);
+
+	if(!sql){
+		LM_ERR("###### Failed to malloc memory.\n");
+		goto Err;
+	}
+	if(iType != 0){
+		LM_ERR("###### Invalid Type.\n");
+		goto Err;
+	}
+	
+	// tb_srcipinvite
+	memset(sql, 0x00, sql_len);
+	sprintf(sql, "INSERT INTO tb_srcipinvite(callid, srcip) VALUES ('%s', '%s')", _callid, _srcip);
+	LM_INFO("####### sql: [%s].\n", sql);
+
+	lock_handle(__FUNCTION__);
+	retcode = sqlite3_open(db_file, &db);
+	if(retcode != SQLITE_OK){
+		LM_ERR("###### Could not open db_file [%s].\n", db_file);
+		goto Err;
+	}
+
+	sqlite3_exec(db, sql, NULL, NULL, &errMsg);
+	if(errMsg == NULL){
+		LM_INFO("###### Successed to INSERT.\n");
+	}else{
+		LM_ERR("###### Failed to INSERT [%s].\n", errMsg);
+	}
+
+Err:
+	if(strlen(_callid) > 0){
+		pkg_free(_callid);
+	}
+	if(strlen(_srcip) > 0){
+		pkg_free(_srcip);
+	}
+	if(sql != NULL){
+		free(sql);
+		sql = NULL;
+	}
+	sqlite3_close(db);
+	unlock_handle(__FUNCTION__);
+	return 1;
+}
+
+static int fetch_srcip(struct sip_msg *_msg, const char *callid, const char *type, char *ip)
+{
+	if(!db_file || !callid || !type || !ip){
+		LM_ERR("###### Invalid parameters.\n");
+		return 1;
+	}
+	
+	sqlite3 *db = 0;
+	int 	retcode = 0;
+	char 	*errMsg = "";
+	size_t 	retLen = 0;
+	pv_spec_t *sp_dest;
+	pv_value_t value;
+	size_t	sql_len = 4096 * sizeof(char);
+	char 	*sql = (char *)malloc(sql_len);
+	size_t 	ip_len = 128 * sizeof(char);
+	char 	*data = (char *)malloc(ip_len);
+	char 	*_callid = strlen(callid) > 0 ? get_svalue(_msg, (gparam_p)callid) : "";
+
+	if(!sql || !data){
+		LM_ERR("####### Failed to malloc memory.\n");
+		goto Err;
+	}
+
+	int iType = atoi(type);
+	if(iType != 0){
+		LM_ERR("###### Invalid Type.\n");
+		goto Err;
+	}
+
+	memset(sql, 0x00, sql_len);
+	sprintf(sql, "SELECT srcip FROM tb_srcipinvite WHERE callid = '%s'", _callid);
+	LM_INFO("####### sql: [%s].\n", sql);
+
+	lock_handle(__FUNCTION__);
+	retcode = sqlite3_open(db_file, &db);
+	if(retcode != SQLITE_OK){
+		LM_ERR("###### Could not open db_file [%s].\n", db_file);
+		unlock_handle(__FUNCTION__);
+		goto Err;
+	}
+
+	memset(data, 0x00, ip_len);
+	sqlite3_exec(db, sql, cb_query, (void*)data, &errMsg);
+	if(errMsg == NULL){
+		LM_INFO("##### Successed to query.\n");
+	}else{
+		LM_ERR("###### Failed to query [%s].\n", errMsg);
+	}
+
+	retLen = strlen(data);
+	value.rs.s = data;
+	value.rs.len = retLen;
+	value.flags = PV_VAL_STR;
+	sp_dest = (pv_spec_t *)ip;
+	
+	if(pv_set_value(_msg, sp_dest, 0, &value) != 0){
+		LM_ERR("######## failed to set fetch callid\n");
+		goto Err;
+	}
+
+Err:
+	if(data){
+		free(data);
+		data = NULL;
+	}
+	if(strlen(_callid) > 0){
+		pkg_free(_callid);
+		_callid = NULL;
+	}
+	if(sql != NULL){
+		free(sql);
+		sql = NULL;
+	}
+	sqlite3_close(db);
+	unlock_handle(__FUNCTION__);
+
+	return 1;
+}
+
+static int store_destip(struct sip_msg *_msg, const char *callid,  const char *type, const char *ip)
+{
+	if(!db_file || !callid || !type || !ip){
+		LM_ERR("###### Invalid parameters\n");
+		return -1;
+	}
+
+	char 	*_callid = strlen(callid) > 0 ? get_svalue(_msg, (gparam_p)callid) : "";
+	char 	*_destip = strlen(ip) > 0 ? get_svalue(_msg, (gparam_p)ip) : "";
+
+	if(strcmp(_callid, "") == 0 || strcmp(_destip, "") == 0){
+		LM_ERR("Failed to store_destip, invalid parameters.\n");
+		return 1;
+	}
+
+	sqlite3	*db 	= 0;
+	int 	retcode = 0;
+	char 	*errMsg = "";
+	size_t	sql_len = 4096 * sizeof(char);
+	char 	*sql = (char *)malloc(sql_len);
+	int 	iType 	= atoi(type);
+
+	if(iType != 0){
+		LM_ERR("###### Invalid Type.\n");
+		goto Err;
+	}
+	
+	// tb_destipinvite
+	memset(sql, 0x00, sql_len);
+	sprintf(sql, "INSERT INTO tb_destipinvite(callid, destip) VALUES ('%s', '%s')", _callid, _destip);
+	LM_INFO("####### sql: [%s].\n", sql);
+
+	lock_handle(__FUNCTION__);
+	retcode = sqlite3_open(db_file, &db);
+	if(retcode != SQLITE_OK){
+		LM_ERR("###### Could not open db_file [%s].\n", db_file);
+		goto Err;
+	}
+
+	sqlite3_exec(db, sql, NULL, NULL, &errMsg);
+	if(errMsg == NULL){
+		LM_INFO("###### Successed to INSERT.\n");
+	}else{
+		LM_ERR("###### Failed to INSERT [%s].\n", errMsg);
+	}
+
+Err:
+	if(strlen(_callid) > 0){
+		pkg_free(_callid);
+	}
+	if(strlen(_destip) > 0){
+		pkg_free(_destip);
+	}
+	if(sql != NULL){
+		free(sql);
+		sql = NULL;
+	}
+	sqlite3_close(db);
+	unlock_handle(__FUNCTION__);
+
+	return 1;
+}
+
+static int fetch_destip(struct sip_msg *_msg, const char *callid, const char *type, char *ip)
+{
+	if(!db_file || !callid || !type || !ip){
+		LM_ERR("###### Invalid parameters.\n");
+		return 1;
+	}
+	
+
+	size_t	sql_len = 4096 * sizeof(char);
+	char 	*sql = (char *)malloc(sql_len);
+	size_t 	ip_len = 2048;
+	char 	*data = (char *)malloc(ip_len);
+	sqlite3 *db = 0;
+	int 	retcode = 0;
+	char 	*errMsg = "";
+	size_t 	retLen = 0;
+	pv_spec_t *sp_dest;
+	pv_value_t value;
+	char 	*_callid = strlen(callid) > 0 ? get_svalue(_msg, (gparam_p)callid) : "";
+	int 	iType = atoi(type);
+
+	if(!sql || !data){
+		LM_ERR("####### Failed to malloc memory.\n");
+		goto Err;
+	}
+
+	if(iType != 0){
+		LM_ERR("###### Invalid Type.\n");
+		goto Err;
+	}
+
+	memset(sql, 0x00, sql_len);
+	sprintf(sql, "SELECT destip FROM tb_destipinvite WHERE callid = '%s'", _callid);
+	LM_INFO("####### sql: [%s].\n", sql);
+
+	lock_handle(__FUNCTION__);
+	retcode = sqlite3_open(db_file, &db);
+	if(retcode != SQLITE_OK){
+		LM_ERR("###### Could not open db_file [%s].\n", db_file);
+		unlock_handle(__FUNCTION__);
+		goto Err;
+	}
+
+	memset(data, 0x00, ip_len);
+	sqlite3_exec(db, sql, cb_query, (void*)data, &errMsg);
+	if(errMsg == NULL){
+		LM_INFO("##### Successed to query.\n");
+	}else{
+		LM_ERR("###### Failed to query [%s].\n", errMsg);
+	}
+
+	retLen = strlen(data);
+	value.rs.s = data;
+	value.rs.len = retLen;
+	value.flags = PV_VAL_STR;
+	sp_dest = (pv_spec_t *)ip;
+	
+	if(pv_set_value(_msg, sp_dest, 0, &value) != 0){
+		LM_ERR("######## failed to set fetch callid\n");
+		goto Err;
+	}
+
+Err:
+	if(data){
+		free(data);
+		data = NULL;
+	}
+	if(strlen(_callid) > 0){
+		pkg_free(_callid);
+		_callid = NULL;
+	}
+	if(sql != NULL){
+		free(sql);
+		sql = NULL;
+	}
+	sqlite3_close(db);
+	unlock_handle(__FUNCTION__);
+
+	return 1;
+}
+
+static int store_from(struct sip_msg *_msg, const char *callid,  const char *type, const char *from)
+{
+	if(!db_file || !callid || !type || !from){
+		LM_ERR("###### Invalid parameters\n");
+		return -1;
+	}
+
+	char 	*_callid = strlen(callid) > 0 ? get_svalue(_msg, (gparam_p)callid) : "";
+	char 	*_from	 = strlen(from) > 0 ? get_svalue(_msg, (gparam_p)from) : "";
+
+	if(strcmp(_callid, "") == 0 || strcmp(_from, "") == 0){
+		LM_ERR("Failed to store_from, invalid parameters.\n");
+		return 1;
+	}
+
+	sqlite3	*db 	= 0;
+	int 	retcode = 0;
+	char 	*errMsg = "";
+	size_t	sql_len = 4096 * sizeof(char);
+	char 	*sql = (char *)malloc(sql_len);
+	int 	iType 	= atoi(type);
+
+	if(iType != 0){
+		LM_ERR("###### Invalid Type.\n");
+		goto Err;
+	}
+	
+	// tb_frominvite
+	memset(sql, 0x00, sql_len);
+	sprintf(sql, "INSERT INTO tb_frominvite(callid, _from) VALUES ('%s', '%s')", _callid, _from);
+	LM_INFO("####### sql: [%s].\n", sql);
+
+	lock_handle(__FUNCTION__);
+	retcode = sqlite3_open(db_file, &db);
+	if(retcode != SQLITE_OK){
+		LM_ERR("###### Could not open db_file [%s].\n", db_file);
+		goto Err;
+	}
+
+	sqlite3_exec(db, sql, NULL, NULL, &errMsg);
+	unlock_handle(__FUNCTION__);
+	if(errMsg == NULL){
+		LM_INFO("###### Successed to INSERT.\n");
+	}else{
+		LM_ERR("###### Failed to INSERT [%s].\n", errMsg);
+	}
+
+Err:
+	if(strlen(_callid) > 0){
+		pkg_free(_callid);
+	}
+	if(strlen(_from) > 0){
+		pkg_free(_from);
+	}
+	if(sql != NULL){
+		free(sql);
+		sql = NULL;
+	}
+	sqlite3_close(db);
+
+	return 1;
+}
+
+static int fetch_from(struct sip_msg *_msg, const char *callid, const char *type, char *from)
+{
+	if(!db_file || !callid || !type || !from){
+		LM_ERR("###### Invalid parameters.\n");
+		return 1;
+	}
+	
+	size_t	sql_len = 4096 * sizeof(char);
+	char 	*sql = (char *)malloc(sql_len);
+	size_t 	from_len = 2048 * sizeof(char);
+	char 	*data = (char *)malloc(from_len);
+	sqlite3 *db = 0;
+	int 	retcode = 0;
+	char 	*errMsg = "";
+	size_t 	retLen = 0;
+	pv_spec_t *sp_dest;
+	pv_value_t value;
+	char 	*_callid = strlen(callid) > 0 ? get_svalue(_msg, (gparam_p)callid) : "";
+	int 	iType = atoi(type);
+
+	if(!sql || !data){
+		LM_ERR("####### Failed to malloc memory.\n");
+		goto Err;
+	}
+
+	if(iType != 0){
+		LM_ERR("###### Invalid Type.\n");
+		goto Err;
+	}
+
+	memset(sql, 0x00, sql_len);
+	sprintf(sql, "SELECT _from FROM tb_frominvite WHERE callid = '%s'", _callid);
+	LM_INFO("####### sql: [%s].\n", sql);
+
+	lock_handle(__FUNCTION__);
+	retcode = sqlite3_open(db_file, &db);
+	if(retcode != SQLITE_OK){
+		LM_ERR("###### Could not open db_file [%s].\n", db_file);
+		unlock_handle(__FUNCTION__);
+		goto Err;
+	}
+
+	memset(data, 0x00, from_len);
+	sqlite3_exec(db, sql, cb_query, (void*)data, &errMsg);
+	if(errMsg == NULL){
+		LM_INFO("##### Successed to query.\n");
+	}else{
+		LM_ERR("###### Failed to query [%s].\n", errMsg);
+	}
+
+	retLen = strlen(data);
+	value.rs.s = data;
+	value.rs.len = retLen;
+	value.flags = PV_VAL_STR;
+	sp_dest = (pv_spec_t *)from;
+	
+	if(pv_set_value(_msg, sp_dest, 0, &value) != 0){
+		LM_ERR("######## failed to set fetch callid\n");
+		goto Err;
+	}
+
+Err:
+	if(data){
+		free(data);
+		data = NULL;
+	}
+	if(strlen(_callid) > 0){
+		pkg_free(_callid);
+		_callid = NULL;
+	}
+	if(sql != NULL){
+		free(sql);
+		sql = NULL;
+	}
+	sqlite3_close(db);
+	unlock_handle(__FUNCTION__);
+
+	return 1;
+}
+
+static int store_to(struct sip_msg *_msg, const char *callid,  const char *type, const char *to)
+{
+	if(!db_file || !callid || !type || !to){
+		LM_ERR("###### Invalid parameters\n");
+		return -1;
+	}
+
+	char 	*_callid = strlen(callid) > 0 ? get_svalue(_msg, (gparam_p)callid) : "";
+	char 	*_to	 = strlen(to) > 0 ? get_svalue(_msg, (gparam_p)to) : "";
+
+	if(strcmp(_callid, "") == 0 || strcmp(_to, "") == 0){
+		LM_ERR("Failed to store_to, invalid parameters.\n");
+		return 1;
+	}
+
+	sqlite3	*db 	= 0;
+	int 	retcode = 0;
+	char 	*errMsg = "";
+	size_t	sql_len = 4096 * sizeof(char);
+	char 	*sql = (char *)malloc(sql_len);
+	int 	iType 	= atoi(type);
+
+	if(iType != 0){
+		LM_ERR("###### Invalid Type.\n");
+		goto Err;
+	}
+
+	// tb_toinvite
+	memset(sql, 0x00, sql_len);
+	sprintf(sql, "INSERT INTO tb_toinvite(callid, _to) VALUES ('%s', '%s')", _callid, _to);
+	LM_INFO("####### sql: [%s].\n", sql);
+
+	lock_handle(__FUNCTION__);
+	retcode = sqlite3_open(db_file, &db);
+	if(retcode != SQLITE_OK){
+		LM_ERR("###### Could not open db_file [%s].\n", db_file);
+		goto Err;
+	}
+
+	sqlite3_exec(db, sql, NULL, NULL, &errMsg);
+	unlock_handle(__FUNCTION__);
+	if(errMsg == NULL){
+		LM_INFO("###### Successed to INSERT.\n");
+	}else{
+		LM_ERR("###### Failed to INSERT [%s].\n", errMsg);
+	}
+
+Err:
+	if(strlen(_callid) > 0){
+		pkg_free(_callid);
+	}
+	if(strlen(_to) > 0){
+		pkg_free(_to);
+	}
+	if(sql != NULL){
+		free(sql);
+		sql = NULL;
+	}
+	sqlite3_close(db);
+	unlock_handle(__FUNCTION__);
+	return 1;
+}
+
+static int fetch_to(struct sip_msg *_msg, const char *callid, const char *type, char *to)
+{
+	if(!db_file || !callid || !type || !to){
+		LM_ERR("###### Invalid parameters.\n");
+		return 1;
+	}
+	
+	size_t	sql_len = 4096 * sizeof(char);
+	char 	*sql = (char *)malloc(sql_len);
+	size_t 	to_len = 2048 * sizeof(char);
+	char 	*data = (char *)malloc(to_len);
+	sqlite3 *db = 0;
+	int 	retcode = 0;
+	char 	*errMsg = "";
+	size_t 	retLen = 0;
+	pv_spec_t *sp_dest;
+	pv_value_t value;
+	char 	*_callid = strlen(callid) > 0 ? get_svalue(_msg, (gparam_p)callid) : "";
+	int 	iType = atoi(type);
+
+	if(!sql || !data){
+		LM_ERR("####### Failed to malloc memory.\n");
+		goto Err;
+	}
+
+	if(iType != 0){
+		LM_ERR("###### Invalid Type.\n");
+		goto Err;
+	}
+
+	memset(sql, 0x00, sql_len);
+	sprintf(sql, "SELECT _to FROM tb_toinvite WHERE callid = '%s'", _callid);
+	LM_INFO("####### sql: [%s].\n", sql);
+
+
+	lock_handle(__FUNCTION__);
+	retcode = sqlite3_open(db_file, &db);
+	if(retcode != SQLITE_OK){
+		LM_ERR("###### Could not open db_file [%s].\n", db_file);
+		unlock_handle(__FUNCTION__);
+		goto Err;
+	}
+
+	memset(data, 0x00, to_len);
+	sqlite3_exec(db, sql, cb_query, (void*)data, &errMsg);
+	if(errMsg == NULL){
+		LM_INFO("##### Successed to query.\n");
+	}else{
+		LM_ERR("###### Failed to query [%s].\n", errMsg);
+	}
+
+	retLen = strlen(data);
+	value.rs.s = data;
+	value.rs.len = retLen;
+	value.flags = PV_VAL_STR;
+	sp_dest = (pv_spec_t *)to;
+	
+	if(pv_set_value(_msg, sp_dest, 0, &value) != 0){
+		LM_ERR("######## failed to set fetch callid\n");
+		goto Err;
+	}
+
+Err:
+	if(data){
+		free(data);
+		data = NULL;
+	}
+	if(strlen(_callid) > 0){
+		pkg_free(_callid);
+		_callid = NULL;
+	}
+	if(sql != NULL){
+		free(sql);
+		sql = NULL;
+	}
+	sqlite3_close(db);
+	unlock_handle(__FUNCTION__);
+
+	return 1;
+}
+
+static int store_pai(struct sip_msg *_msg, const char *callid,  const char *type, const char *pai)
+{
+	if(!db_file || !callid || !type || !pai){
+		LM_ERR("###### Invalid parameters\n");
+		return -1;
+	}
+
+	char 	*_callid = strlen(callid) > 0 ? get_svalue(_msg, (gparam_p)callid) : "";
+	char 	*_pai	 = strlen(pai) > 0 ? get_svalue(_msg, (gparam_p)pai) : "";
+
+	if(strcmp(_callid, "") == 0 || strcmp(_pai, "") == 0){
+		LM_ERR("Failed to store_pai, invalid parameters.\n");
+		return 1;
+	}
+
+	sqlite3	*db 	= 0;
+	int 	retcode = 0;
+	char 	*errMsg = "";
+	size_t	sql_len = 4096 * sizeof(char);
+	char 	*sql = (char *)malloc(sql_len);
+	int 	iType 	= atoi(type);
+
+	if(iType != 0){
+		LM_ERR("###### Invalid Type.\n");
+		goto Err;
+	}
+	
+	// tb_pai
+	memset(sql, 0x00, sql_len);
+	sprintf(sql, "INSERT INTO tb_pai(callid, pai) VALUES ('%s', '%s')", _callid, _pai);
+	LM_INFO("####### sql: [%s].\n", sql);
+
+	lock_handle(__FUNCTION__);
+	retcode = sqlite3_open(db_file, &db);
+	if(retcode != SQLITE_OK){
+		LM_ERR("###### Could not open db_file [%s].\n", db_file);
+		goto Err;
+	}
+
+	sqlite3_exec(db, sql, NULL, NULL, &errMsg);
+	if(errMsg == NULL){
+		LM_INFO("###### Successed to INSERT.\n");
+	}else{
+		LM_ERR("###### Failed to INSERT [%s].\n", errMsg);
+	}
+
+Err:
+	if(strlen(_callid) > 0){
+		pkg_free(_callid);
+	}
+	if(strlen(_pai) > 0){
+		pkg_free(_pai);
+	}
+	if(sql != NULL){
+		free(sql);
+		sql = NULL;
+	}
+	sqlite3_close(db);
+	unlock_handle(__FUNCTION__);
+	return 1;
+}
+
+static int fetch_pai(struct sip_msg *_msg, const char *callid, const char *type, char *pai)
+{
+	if(!db_file || !callid || !type || !pai){
+		LM_ERR("###### Invalid parameters.\n");
+		return 1;
+	}
+	
+	size_t	sql_len = 4096 * sizeof(char);
+	char 	*sql = (char *)malloc(sql_len);
+	size_t 	pai_len = 2048;
+	char 	*data = (char *)malloc(pai_len);
+	sqlite3 *db = 0;
+	int 	retcode = 0;
+	char 	*errMsg = "";
+	size_t 	retLen = 0;
+	pv_spec_t *sp_dest;
+	pv_value_t value;
+	char 	*_callid = strlen(callid) > 0 ? get_svalue(_msg, (gparam_p)callid) : "";
+	int 	iType = atoi(type);
+
+	if(!sql || !data){
+		LM_ERR("####### Failed to malloc memory.\n");
+		goto Err;
+	}
+
+	if(iType != 0){
+		LM_ERR("###### Invalid Type.\n");
+		goto Err;
+	}
+
+	memset(sql, 0x00, sql_len);
+	sprintf(sql, "SELECT pai FROM tb_pai WHERE callid = '%s'", _callid);
+	LM_INFO("####### sql: [%s].\n", sql);
+
+	lock_handle(__FUNCTION__);
+	retcode = sqlite3_open(db_file, &db);
+	if(retcode != SQLITE_OK){
+		LM_ERR("###### Could not open db_file [%s].\n", db_file);
+		unlock_handle(__FUNCTION__);
+		goto Err;
+	}
+
+	memset(data, 0x00, pai_len);
+	sqlite3_exec(db, sql, cb_query, (void*)data, &errMsg);
+	if(errMsg == NULL){
+		LM_INFO("##### Successed to query.\n");
+	}else{
+		LM_ERR("###### Failed to query [%s].\n", errMsg);
+	}
+
+	retLen = strlen(data);
+	value.rs.s = data;
+	value.rs.len = retLen;
+	value.flags = PV_VAL_STR;
+	sp_dest = (pv_spec_t *)pai;
+	
+	if(pv_set_value(_msg, sp_dest, 0, &value) != 0){
+		LM_ERR("######## failed to set fetch callid\n");
+		goto Err;
+	}
+
+Err:
+	if(data){
+		free(data);
+		data = NULL;
+	}
+	if(strlen(_callid) > 0){
+		pkg_free(_callid);
+		_callid = NULL;
+	}
+	if(sql != NULL){
+		free(sql);
+		sql = NULL;
+	}
+	sqlite3_close(db);
+	unlock_handle(__FUNCTION__);
+
+	return 1;
+}
+
+static int store_bypass(struct sip_msg *_msg, const char *callid,  const char *type, const char *bypass)
+{
+	if(!db_file || !callid || !type || !bypass){
+		LM_ERR("###### Invalid parameters\n");
+		return -1;
+	}
+
+	char 	*_callid = strlen(callid) > 0 ? get_svalue(_msg, (gparam_p)callid) : "";
+	char 	*_bypass = strlen(bypass) > 0 ? get_svalue(_msg, (gparam_p)bypass) : "";
+
+	if(strcmp(_callid, "") == 0 || strcmp(_bypass, "") == 0){
+		LM_ERR("Failed to store_bypass, invalid parameters.\n");
+		return 1;
+	}
+
+	sqlite3	*db 	= 0;
+	int 	retcode = 0;
+	char 	*errMsg = "";
+	size_t	sql_len = 4096 * sizeof(char);
+	char 	*sql = (char *)malloc(sql_len);
+	int 	iType 	= atoi(type);
+
+	if(iType != 0){
+		LM_ERR("###### Invalid Type.\n");
+		goto Err;
+	}
+	
+	// tb_bypass
+	memset(sql, 0x00, sql_len);
+	sprintf(sql, "INSERT INTO tb_bypass(callid, bypass) VALUES ('%s', '%s')", _callid, _bypass);
+	LM_INFO("####### sql: [%s].\n", sql);
+
+	lock_handle(__FUNCTION__);
+	retcode = sqlite3_open(db_file, &db);
+	if(retcode != SQLITE_OK){
+		LM_ERR("###### Could not open db_file [%s].\n", db_file);
+		goto Err;
+	}
+
+	sqlite3_exec(db, sql, NULL, NULL, &errMsg);
+	if(errMsg == NULL){
+		LM_INFO("###### Successed to INSERT.\n");
+	}else{
+		LM_ERR("###### Failed to INSERT [%s].\n", errMsg);
+	}
+
+Err:
+	if(strlen(_callid) > 0){
+		pkg_free(_callid);
+	}
+	if(strlen(_bypass) > 0){
+		pkg_free(_bypass);
+	}
+	if(sql != NULL){
+		free(sql);
+		sql = NULL;
+	}
+	sqlite3_close(db);
+	unlock_handle(__FUNCTION__);
+	return 1;
+}
+
+static int fetch_bypass(struct sip_msg *_msg, const char *callid, const char *type, char *bypass)
+{
+	if(!db_file || !callid || !type || !bypass){
+		LM_ERR("###### Invalid parameters.\n");
+		return 1;
+	}
+	
+	size_t	sql_len = 4096 * sizeof(char);
+	char 	*sql = (char *)malloc(sql_len);
+	size_t 	bypass_len = 128 * sizeof(char);
+	char 	*data = (char *)malloc(bypass_len);
+	sqlite3 *db = 0;
+	int 	retcode = 0;
+	char 	*errMsg = "";
+	size_t 	retLen = 0;
+	pv_spec_t *sp_dest;
+	pv_value_t value;
+	char 	*_callid = strlen(callid) > 0 ? get_svalue(_msg, (gparam_p)callid) : "";
+	int 	iType = atoi(type);
+
+	if(!sql || !data){
+		LM_ERR("####### Failed to malloc memory.\n");
+		goto Err;
+	}
+
+	if(iType != 0){
+		LM_ERR("###### Invalid Type.\n");
+		goto Err;
+	}
+
+	memset(sql, 0x00, sql_len);
+	sprintf(sql, "SELECT bypass FROM tb_bypass WHERE callid = '%s'", _callid);
+	LM_INFO("####### sql: [%s].\n", sql);
+
+	lock_handle(__FUNCTION__);
+	retcode = sqlite3_open(db_file, &db);
+	if(retcode != SQLITE_OK){
+		LM_ERR("###### Could not open db_file [%s].\n", db_file);
+		unlock_handle(__FUNCTION__);
+		goto Err;
+	}
+
+	memset(data, 0x00, bypass_len);
+	sqlite3_exec(db, sql, cb_query, (void*)data, &errMsg);
+	if(errMsg == NULL){
+		LM_INFO("##### Successed to query.\n");
+	}else{
+		LM_ERR("###### Failed to query [%s].\n", errMsg);
+	}
+
+	retLen = strlen(data);
+	value.rs.s = data;
+	value.rs.len = retLen;
+	value.flags = PV_VAL_STR;
+	sp_dest = (pv_spec_t *)bypass;
+	
+	if(pv_set_value(_msg, sp_dest, 0, &value) != 0){
+		LM_ERR("######## failed to set fetch callid\n");
+		goto Err;
+	}
+
+Err:
+	if(data){
+		free(data);
+		data = NULL;
+	}
+	if(strlen(_callid) > 0){
+		pkg_free(_callid);
+		_callid = NULL;
+	}
+	if(sql != NULL){
+		free(sql);
+		sql = NULL;
+	}
+	sqlite3_close(db);
+	unlock_handle(__FUNCTION__);
+
+	return 1;
+}
+
+static int store_pani(struct sip_msg *_msg, const char *callid,  const char *type, const char *pani)
+{
+	if(!db_file || !callid || !type || !pani){
+		LM_ERR("###### Invalid parameters\n");
+		return -1;
+	}
+
+	char 	*_callid = strlen(callid) > 0 ? get_svalue(_msg, (gparam_p)callid) : "";
+	char 	*_pani	 = strlen(pani) > 0 ? get_svalue(_msg, (gparam_p)pani) : "";
+
+	if(strcmp(_callid, "") == 0 || strcmp(_pani, "") == 0){
+		LM_ERR("Failed to store_pani, invalid parameters.\n");
+		return 1;
+	}
+
+	sqlite3	*db 	= 0;
+	int 	retcode = 0;
+	char 	*errMsg = "";
+	size_t	sql_len = 4096 * sizeof(char);
+	char 	*sql = (char *)malloc(sql_len);
+	int 	iType 	= atoi(type);
+
+	if(iType != 0){
+		LM_ERR("###### Invalid Type.\n");
+		goto Err;
+	}
+	
+	// tb_pani
+	memset(sql, 0x00, sql_len);
+	sprintf(sql, "INSERT INTO tb_pani(callid, pani) VALUES ('%s', '%s')", _callid, _pani);
+	LM_INFO("####### sql: [%s].\n", sql);
+
+	lock_handle(__FUNCTION__);
+	retcode = sqlite3_open(db_file, &db);
+	if(retcode != SQLITE_OK){
+		LM_ERR("###### Could not open db_file [%s].\n", db_file);
+		goto Err;
+	}
+
+	sqlite3_exec(db, sql, NULL, NULL, &errMsg);
+	if(errMsg == NULL){
+		LM_INFO("###### Successed to INSERT.\n");
+	}else{
+		LM_ERR("###### Failed to INSERT [%s].\n", errMsg);
+	}
+
+Err:
+	if(strlen(_callid) > 0){
+		pkg_free(_callid);
+	}
+	if(strlen(_pani) > 0){
+		pkg_free(_pani);
+	}
+	if(sql != NULL){
+		free(sql);
+		sql = NULL;
+	}
+	sqlite3_close(db);
+	unlock_handle(__FUNCTION__);
+	return 1;
+}
+
+static int fetch_pani(struct sip_msg *_msg, const char *callid, const char *type, char *pani)
+{
+	if(!db_file || !callid || !type || !pani){
+		LM_ERR("###### Invalid parameters.\n");
+		return 1;
+	}
+	
+	size_t	sql_len = 4096 * sizeof(char);
+	char 	*sql = (char *)malloc(sql_len);
+	size_t 	pani_len = 2048;
+	char 	*data = (char *)malloc(pani_len);
+	sqlite3 *db = 0;
+	int 	retcode = 0;
+	char 	*errMsg = "";
+	size_t 	retLen = 0;
+	pv_spec_t *sp_dest;
+	pv_value_t value;
+	char 	*_callid = strlen(callid) > 0 ? get_svalue(_msg, (gparam_p)callid) : "";
+	int 	iType = atoi(type);
+
+	if(!sql || !data){
+		LM_ERR("####### Failed to malloc memory.\n");
+		goto Err;
+	}
+
+	if(iType != 0){
+		LM_ERR("###### Invalid Type.\n");
+		goto Err;
+	}
+
+	memset(sql, 0x00, sql_len);
+	sprintf(sql, "SELECT pani FROM tb_pani WHERE callid = '%s'", _callid);
+	LM_INFO("####### sql: [%s].\n", sql);
+
+	lock_handle(__FUNCTION__);
+	retcode = sqlite3_open(db_file, &db);
+	if(retcode != SQLITE_OK){
+		LM_ERR("###### Could not open db_file [%s].\n", db_file);
+		unlock_handle(__FUNCTION__);
+		goto Err;
+	}
+
+	memset(data, 0x00, pani_len);
+	sqlite3_exec(db, sql, cb_query, (void*)data, &errMsg);
+	if(errMsg == NULL){
+		LM_INFO("##### Successed to query.\n");
+	}else{
+		LM_ERR("###### Failed to query [%s].\n", errMsg);
+	}
+
+	retLen = strlen(data);
+	value.rs.s = data;
+	value.rs.len = retLen;
+	value.flags = PV_VAL_STR;
+	sp_dest = (pv_spec_t *)pani;
+	
+	if(pv_set_value(_msg, sp_dest, 0, &value) != 0){
+		LM_ERR("######## failed to set fetch callid\n");
+		goto Err;
+	}
+
+Err:
+	if(data){
+		free(data);
+		data = NULL;
+	}
+	if(strlen(_callid) > 0){
+		pkg_free(_callid);
+		_callid = NULL;
+	}
+	if(sql != NULL){
+		free(sql);
+		sql = NULL;
+	}
+	sqlite3_close(db);
+	unlock_handle(__FUNCTION__);
+
+	return 1;
+}
+
+static int store_ruser(struct sip_msg *_msg, const char *callid,  const char *type, const char *ruser)
+{
+	if(!db_file || !callid || !type || !ruser){
+		LM_ERR("###### Invalid parameters\n");
+		return -1;
+	}
+
+	char 	*_callid = strlen(callid) > 0 ? get_svalue(_msg, (gparam_p)callid) : "";
+	char 	*_ruser = strlen(ruser) > 0 ? get_svalue(_msg, (gparam_p)ruser) : "";
+
+	if(strcmp(_callid, "") == 0 || strcmp(_ruser, "") == 0){
+		LM_ERR("Failed to store_ruser, invalid parameters.\n");
+		return 1;
+	}
+
+	sqlite3	*db 	= 0;
+	int 	retcode = 0;
+	char 	*errMsg = "";
+	size_t	sql_len = 4096 * sizeof(char);
+	char 	*sql = (char *)malloc(sql_len);
+	int 	iType 	= atoi(type);
+
+	if(iType != 0){
+		LM_ERR("###### Invalid Type.\n");
+		goto Err;
+	}
+	
+	// tb_ruser
+	memset(sql, 0x00, sql_len);
+	sprintf(sql, "INSERT INTO tb_ruser(callid, ruser) VALUES ('%s', '%s')", _callid, _ruser);
+	LM_INFO("####### sql: [%s].\n", sql);
+
+	lock_handle(__FUNCTION__);
+	retcode = sqlite3_open(db_file, &db);
+	if(retcode != SQLITE_OK){
+		LM_ERR("###### Could not open db_file [%s].\n", db_file);
+		goto Err;
+	}
+
+	sqlite3_exec(db, sql, NULL, NULL, &errMsg);
+	if(errMsg == NULL){
+		LM_INFO("###### Successed to INSERT.\n");
+	}else{
+		LM_ERR("###### Failed to INSERT [%s].\n", errMsg);
+	}
+
+Err:
+	if(strlen(_callid) > 0){
+		pkg_free(_callid);
+	}
+	if(strlen(_ruser) > 0){
+		pkg_free(_ruser);
+	}
+	if(sql != NULL){
+		free(sql);
+		sql = NULL;
+	}
+	sqlite3_close(db);
+	unlock_handle(__FUNCTION__);
+	return 1;
+}
+
+static int fetch_ruser(struct sip_msg *_msg, const char *callid, const char *type, char *ruser)
+{
+	if(!db_file || !callid || !type || !ruser){
+		LM_ERR("###### Invalid parameters.\n");
+		return 1;
+	}
+	
+	size_t	sql_len = 4096 * sizeof(char);
+	char 	*sql = (char *)malloc(sql_len);
+	size_t 	ruser_len = 2048;
+	char 	*data = (char *)malloc(ruser_len);
+	sqlite3 *db = 0;
+	int 	retcode = 0;
+	char 	*errMsg = "";
+	size_t 	retLen = 0;
+	pv_spec_t *sp_dest;
+	pv_value_t value;
+	char 	*_callid = strlen(callid) > 0 ? get_svalue(_msg, (gparam_p)callid) : "";
+	int 	iType = atoi(type);
+
+	if(!sql || !data){
+		LM_ERR("####### Failed to malloc memory.\n");
+		goto Err;
+	}
+
+	if(iType != 0){
+		LM_ERR("###### Invalid Type.\n");
+		goto Err;
+	}
+
+	memset(sql, 0x00, sql_len);
+	sprintf(sql, "SELECT ruser FROM tb_ruser WHERE callid = '%s'", _callid);
+	LM_INFO("####### sql: [%s].\n", sql);
+
+	lock_handle(__FUNCTION__);
+	retcode = sqlite3_open(db_file, &db);
+	if(retcode != SQLITE_OK){
+		LM_ERR("###### Could not open db_file [%s].\n", db_file);
+		unlock_handle(__FUNCTION__);
+		goto Err;
+	}
+
+	memset(data, 0x00, ruser_len);
+	sqlite3_exec(db, sql, cb_query, (void*)data, &errMsg);
+	if(errMsg == NULL){
+		LM_INFO("##### Successed to query.\n");
+	}else{
+		LM_ERR("###### Failed to query [%s].\n", errMsg);
+	}
+
+	retLen = strlen(data);
+	value.rs.s = data;
+	value.rs.len = retLen;
+	value.flags = PV_VAL_STR;
+	sp_dest = (pv_spec_t *)ruser;
+	
+	if(pv_set_value(_msg, sp_dest, 0, &value) != 0){
+		LM_ERR("######## failed to set fetch callid\n");
+		goto Err;
+	}
+
+Err:
+	if(data){
+		free(data);
+		data = NULL;
+	}
+	if(strlen(_callid) > 0){
+		pkg_free(_callid);
+		_callid = NULL;
+	}
+	if(sql != NULL){
+		free(sql);
+		sql = NULL;
+	}
+	sqlite3_close(db);
+	unlock_handle(__FUNCTION__);
+
+	return 1;
+}
+
+//==============================================================================================================================
+// store_invite
+//==============================================================================================================================
+static int store_invite(struct sip_msg *_msg, const char *callid, const char *srcip, const char *ruri,
+			const char *from, const char *to, const char *route, const char *sdp, const char *pai,
+			const char *bypass, const char *servicetype, const char *other)
+{
+	if(!db_file || !callid || !srcip || !ruri || !from || !to){
+		LM_ERR("###### Invalid parameters\n");
+		return -1;
+	}
+
+	char 	*_callid = strlen(callid) > 0 ? get_svalue(_msg, (gparam_p)callid) : "";
+	char	*_srcip = strlen(srcip) > 0 ? get_svalue(_msg, (gparam_p)srcip) : "";
+	char	*_ruri = strlen(ruri) > 0 ? get_svalue(_msg, (gparam_p)ruri) : "";
+	char 	*_from	 = strlen(from) > 0 ? get_svalue(_msg, (gparam_p)from) : "";
+	char 	*_to	 = strlen(to) > 0 ? get_svalue(_msg, (gparam_p)to) : "";
+	const char	*_route = route;
+	const char	*_sdp = sdp;
+	const char 	*_pai = pai;
+	const char	*_bypass = bypass;
+	const char 	*_servicetype = servicetype;
+	const char 	*_other = other;
+
+	sqlite3	*db 	= 0;
+	int 	retcode = 0;
+	char 	*errMsg = "";
+
+	char *sql = (char *)malloc(4096*sizeof(char));
+	memset(sql, 0x00, sizeof(char)*4096);
+
+	sprintf(sql, "INSERT INTO tb_invite(callid, _srcip, _ruri, _from, _to, _route, _sdp, _pai, _bypass, _servicetype, _other)	\
+			 VALUES ('%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s')",
+			_callid, _srcip, _ruri, _from, _to, _route, _sdp, _pai, _bypass, _servicetype, _other);
+
+	LM_INFO("####### sql: [%s].\n", sql);
+
+	lock_handle(__FUNCTION__);
+	retcode = sqlite3_open(db_file, &db);
+	if(retcode != SQLITE_OK){
+		LM_ERR("###### Could not open db_file [%s].\n", db_file);
+		goto Err;
+	}
+
+	sqlite3_exec(db, sql, NULL, NULL, &errMsg);
+	if(errMsg != NULL){
+		LM_ERR("###### Failed to INSERT [%s].\n", errMsg);
+	}
+
+Err:
+	if(strlen(_callid) > 0){
+		pkg_free(_callid);
+	}
+	if(strlen(_srcip) > 0){
+		pkg_free(_srcip);
+	}
+	if(strlen(_ruri) > 0){
+		pkg_free(_ruri);
+	}
+	if(strlen(_from) > 0){
+		pkg_free(_from);
+	}
+	if(strlen(_to) > 0){
+		pkg_free(_to);
+	}
+	if(sql != NULL){
+		free(sql);
+		sql = NULL;
+	}
+	sqlite3_close(db);
+	unlock_handle(__FUNCTION__);
+	return 1;
+}
+
+//============================================================================================================================
+//static int fetch_invite(struct sip_msg *_msg, const char *db_file, const char *callid, const char *type, char *ret);
+//============================================================================================================================
+static int fetch_invite(struct sip_msg *_msg, const char *callid, const char *type, char *ret)
+{
+	return 1;
+}
+
+static int store_180(struct sip_msg *_msg, const char *callid, const char *from, const char *to,
+		     const char *sdp, const char *other)
+{
+	if(!db_file || !callid || !from || !to){
+		LM_ERR("###### Invalid parameters\n");
+		return -1;
+	}
+
+	char 	*_callid = strlen(callid) > 0 ? get_svalue(_msg, (gparam_p)callid) : "";
+	char 	*_from	 = strlen(from) > 0 ? get_svalue(_msg, (gparam_p)from) : "";
+	char 	*_to	 = strlen(to) > 0 ? get_svalue(_msg, (gparam_p)to) : "";
+	const char	*_sdp = sdp;
+	const char 	*_other = other;
+
+	sqlite3	*db 	= 0;
+	int 	retcode = 0;
+	char 	*errMsg = "";
+
+	char *sql = (char *)malloc(4096*sizeof(char));
+	memset(sql, 0x00, sizeof(char)*4096);
+
+	sprintf(sql, "INSERT INTO tb_180(callid, _from, _to, _sdp, _other)	\
+			 VALUES ('%s', '%s', '%s', '%s', '%s')",
+			_callid, _from, _to, _sdp, _other);
+
+	LM_INFO("####### sql: [%s].\n", sql);
+
+	lock_handle(__FUNCTION__);
+	retcode = sqlite3_open(db_file, &db);
+	if(retcode != SQLITE_OK){
+		LM_ERR("###### Could not open db_file [%s].\n", db_file);
+		goto Err;
+	}
+
+	sqlite3_exec(db, sql, NULL, NULL, &errMsg);
+	if(errMsg != NULL){
+		LM_ERR("###### Failed to INSERT [%s].\n", errMsg);
+	}
+
+Err:
+	if(strlen(_callid) > 0){
+		pkg_free(_callid);
+	}
+	if(strlen(_from) > 0){
+		pkg_free(_from);
+	}
+	if(strlen(_to) > 0){
+		pkg_free(_to);
+	}
+	if(sql != NULL){
+		free(sql);
+		sql = NULL;
+	}
+	sqlite3_close(db);
+	unlock_handle(__FUNCTION__);
+	return 1;
+}
+
+//============================================================================================================================
+//static int fetch_180(struct sip_msg *_msg, const char *db_file, const char *callid, const char *type, char *ret);
+//============================================================================================================================
+static int fetch_180(struct sip_msg *_msg, const char *callid, const char *type, char *ret)
+{
+	return 1;
+}
+
+//============================================================================================================================
+//static int store_183(struct sip_msg *_msg, const char *db_file, const char *callid, const char *from, const char *to,
+//		     const char *sdp, const char *other);
+//============================================================================================================================
+static int store_183(struct sip_msg *_msg, const char *callid, const char *from, const char *to,
+		     const char *sdp, const char *other)
+{
+	if(!db_file || !callid || !from || !to){
+		LM_ERR("###### Invalid parameters\n");
+		return -1;
+	}
+
+	char 	*_callid = strlen(callid) > 0 ? get_svalue(_msg, (gparam_p)callid) : "";
+	char 	*_from	 = strlen(from) > 0 ? get_svalue(_msg, (gparam_p)from) : "";
+	char 	*_to	 = strlen(to) > 0 ? get_svalue(_msg, (gparam_p)to) : "";
+	const char	*_sdp = sdp;
+	const char 	*_other = other;
+
+	sqlite3	*db 	= 0;
+	int 	retcode = 0;
+	char 	*errMsg = "";
+
+	char *sql = (char *)malloc(4096*sizeof(char));
+	memset(sql, 0x00, sizeof(char)*4096);
+
+	sprintf(sql, "INSERT INTO tb_183(callid, _from, _to, _sdp, _other)	\
+			 VALUES ('%s', '%s', '%s', '%s', '%s')",
+			_callid, _from, _to, _sdp, _other);
+
+	LM_INFO("####### sql: [%s].\n", sql);
+
+	lock_handle(__FUNCTION__);
+	retcode = sqlite3_open(db_file, &db);
+	if(retcode != SQLITE_OK){
+		LM_ERR("###### Could not open db_file [%s].\n", db_file);
+		goto Err;
+	}
+
+	sqlite3_exec(db, sql, NULL, NULL, &errMsg);
+	if(errMsg != NULL){
+		LM_ERR("###### Failed to INSERT [%s].\n", errMsg);
+	}
+
+Err:
+	if(strlen(_callid) > 0){
+		pkg_free(_callid);
+	}
+	if(strlen(_from) > 0){
+		pkg_free(_from);
+	}
+	if(strlen(_to) > 0){
+		pkg_free(_to);
+	}
+	if(sql != NULL){
+		free(sql);
+		sql = NULL;
+	}
+	sqlite3_close(db);
+	unlock_handle(__FUNCTION__);
+	return 1;
+}
+
+//============================================================================================================================
+//static int fetch_183(struct sip_msg *_msg, const char *db_file, const char *callid, const char *type, char *ret);
+//============================================================================================================================
+static int fetch_183(struct sip_msg *_msg, const char *callid, const char *type, char *ret)
+{
+	return 1;
+}
+
+static int store_200(struct sip_msg *_msg, const char *callid, const char *from, const char *fromtag, 
+		     const char *to, const char *totag, const char *sdp, const char *other)
+{
+	if(!db_file || !callid || !from || !fromtag || !to){
+		LM_ERR("###### Invalid parameters\n");
+		return -1;
+	}
+
+	char 	*_callid = strlen(callid) > 0 ? get_svalue(_msg, (gparam_p)callid) : "";
+	char 	*_from	 = strlen(from) > 0 ? get_svalue(_msg, (gparam_p)from) : "";
+	char 	*_fromtag	 = strlen(fromtag) > 0 ? get_svalue(_msg, (gparam_p)fromtag) : "";
+	char 	*_to	 = strlen(to) > 0 ? get_svalue(_msg, (gparam_p)to) : "";
+	char 	*_totag	 = strlen(totag) > 0 ? get_svalue(_msg, (gparam_p)totag) : "";
+	const char	*_sdp = sdp;
+	const char 	*_other = other;
+
+	sqlite3	*db 	= 0;
+	int 	retcode = 0;
+	char 	*errMsg = "";
+
+	char *sql = (char *)malloc(4096*sizeof(char));
+	memset(sql, 0x00, sizeof(char)*4096);
+
+	sprintf(sql, "INSERT INTO tb_200(callid, _from, _fromtag, _to, _totag, _sdp, _other)	\
+			 VALUES ('%s', '%s', '%s', '%s', '%s', '%s', '%s')",
+			_callid, _from, _fromtag, _to, _totag, _sdp, _other);
+
+	LM_INFO("####### sql: [%s].\n", sql);
+
+	lock_handle(__FUNCTION__);
+	retcode = sqlite3_open(db_file, &db);
+	if(retcode != SQLITE_OK){
+		LM_ERR("###### Could not open db_file [%s].\n", db_file);
+		goto Err;
+	}
+
+	sqlite3_exec(db, sql, NULL, NULL, &errMsg);
+	if(errMsg != NULL){
+		LM_ERR("###### Failed to INSERT [%s].\n", errMsg);
+	}
+
+Err:
+	if(strlen(_callid) > 0){
+		pkg_free(_callid);
+	}
+	if(strlen(_from) > 0){
+		pkg_free(_from);
+	}
+	if(strlen(_fromtag) > 0){
+		pkg_free(_fromtag);
+	}
+	if(strlen(_to) > 0){
+		pkg_free(_to);
+	}
+	if(strlen(_totag) > 0){
+		pkg_free(_totag);
+	}
+	if(sql != NULL){
+		free(sql);
+		sql = NULL;
+	}
+	sqlite3_close(db);
+	return 1;
+}
+
+
+//============================================================================================================================
+//static int fetch_200(struct sip_msg *_msg, const char *db_file, const char *callid, const char *type, char *ret);
+//============================================================================================================================
+static int fetch_200(struct sip_msg *_msg, const char *callid, const char *type, char *ret)
+{
+	return 1;
+}
+
+static int store_update(struct sip_msg *_msg, const char *callid, const char *from, const char *to,
+			const char *sdp, const char *other)
+{
+	if(!db_file || !callid || !from || !to){
+		LM_ERR("###### Invalid parameters\n");
+		return -1;
+	}
+
+	char 	*_callid = strlen(callid) > 0 ? get_svalue(_msg, (gparam_p)callid) : "";
+	char 	*_from	 = strlen(from) > 0 ? get_svalue(_msg, (gparam_p)from) : "";
+	char 	*_to	 = strlen(to) > 0 ? get_svalue(_msg, (gparam_p)to) : "";
+	const char	*_sdp = sdp;
+	const char 	*_other = other;
+
+	sqlite3	*db 	= 0;
+	int 	retcode = 0;
+	char 	*errMsg = "";
+
+	char *sql = (char *)malloc(4096*sizeof(char));
+	memset(sql, 0x00, sizeof(char)*4096);
+
+	sprintf(sql, "INSERT INTO tb_update(callid, _from, _to, _sdp, _other)	\
+			 VALUES ('%s', '%s', '%s', '%s', '%s')",
+			_callid, _from, _to, _sdp, _other);
+
+	LM_INFO("####### sql: [%s].\n", sql);
+
+	lock_handle(__FUNCTION__);
+	retcode = sqlite3_open(db_file, &db);
+	if(retcode != SQLITE_OK){
+		LM_ERR("###### Could not open db_file [%s].\n", db_file);
+		goto Err;
+	}
+
+	sqlite3_exec(db, sql, NULL, NULL, &errMsg);
+	if(errMsg != NULL){
+		LM_ERR("###### Failed to INSERT [%s].\n", errMsg);
+	}
+
+Err:
+	if(strlen(_callid) > 0){
+		pkg_free(_callid);
+	}
+	if(strlen(_from) > 0){
+		pkg_free(_from);
+	}
+	if(strlen(_to) > 0){
+		pkg_free(_to);
+	}
+	if(sql != NULL){
+		free(sql);
+		sql = NULL;
+	}
+	sqlite3_close(db);
+	unlock_handle(__FUNCTION__);
+	return 1;
+}
+
+//============================================================================================================================
+//static int fetch_update(struct sip_msg *_msg, const char *db_file, const char *callid, const char *type, char *ret);
+//============================================================================================================================
+static int fetch_update(struct sip_msg *_msg, const char *callid, const char *type, char *ret)
+{
+	return 1;
+}
+
+static int fixup_param_func_store_callid(void **param, int param_no)
+{
+	if(param_no == 1){ 		// incallid
+		return fixup_sgp(param);
+	}else if(param_no == 2){ 	// outcallid
+		return fixup_sgp(param);
+	}else{			
+		LM_ERR("####### wrong number of parameters.\n");
+		return E_UNSPEC;
+	}
+}
+
+
+static int fixup_param_func_fetch_callid(void **param, int param_no)
+{
+	pv_spec_t *sp;
+	int ret;
+	
+	if(param_no == 1){ 		// onecallid
+		return fixup_sgp(param);
+	}else if(param_no == 2){ 	// theothercallid
+		ret = fixup_pvar(param);
+		if(ret < 0)return ret;
+		sp = (pv_spec_t *)(*param);
+		if(!pv_is_w(sp)){
+			LM_ERR("######## output pvar must be writable! (given: %d)\n", pv_type(sp->type));
+			return E_SCRIPT;
+		}
+		return 0;
+	}else{			
+		LM_ERR("####### wrong number of parameters.\n");
+		return E_UNSPEC;
+	}
+}
+
+static int fixup_param_func_store_sdp(void **param, int param_no)
+{
+	if(param_no == 1){ 	// callid
+		return fixup_sgp(param);
+	}else if(param_no == 2){ // type
+		return 0;
+	}else if(param_no == 3){ // sdp
+		return fixup_sgp(param);	
+	}else{			
+		LM_ERR("####### wrong number of parameters.\n");
+		return E_UNSPEC;
+	}
+}
+
+static int fixup_param_func_fetch_sdp(void **param, int param_no)
+{
+	pv_spec_t *sp;
+	int ret;
+	
+	if(param_no == 1){ // callid
+		return fixup_sgp(param);
+	}else if(param_no == 2){ //type
+		return 0;
+	}else if(param_no == 3){ // sdp
+		ret = fixup_pvar(param);
+		if(ret < 0)return ret;
+		sp = (pv_spec_t *)(*param);
+		if(!pv_is_w(sp)){
+			LM_ERR("######## output pvar must be writable! (given: %d)\n", pv_type(sp->type));
+			return E_SCRIPT;
+		}
+		return 0;
+	}else{			
+		LM_ERR("####### wrong number of parameters.\n");
+		return E_UNSPEC;
+	}
+}
+
+static int fixup_param_func_store_invite(void **param, int param_no)
+{
+	if(param_no == 1){ // callid
+		return fixup_sgp(param);
+	}else if(param_no == 2){ // srcip
+		return fixup_sgp(param);
+	}else if(param_no == 3){ // ruri
+		return fixup_sgp(param);
+	}else if(param_no == 4){ // from
+		return fixup_sgp(param);
+	}else if(param_no == 5){ // to
+		return fixup_sgp(param);
+	}else if(param_no == 6 || param_no == 7 || param_no == 8 || param_no == 9 || param_no == 10 || param_no == 11){ // route,sdp,pai,bypass,servicetype,other
+		return 0;
+	}else{			
+		LM_ERR("####### wrong number of parameters.\n");
+		return E_UNSPEC;
+	}
+}
+
+static int fixup_param_func_store_18x(void **param, int param_no)
+{
+	if(param_no == 1){ // callid
+		return fixup_sgp(param);
+	}else if(param_no == 2){ // from
+		return fixup_sgp(param);
+	}else if(param_no == 3){ // to
+		return fixup_sgp(param);
+	}else if(param_no == 4 || param_no == 5){ // sdp,other
+		return 0;
+	}else{			
+		LM_ERR("####### wrong number of parameters.\n");
+		return E_UNSPEC;
+	}
+}
+
+static int fixup_param_func_store_200(void **param, int param_no)
+{
+	if(param_no == 1){ // callid
+		return fixup_sgp(param);
+	}else if(param_no == 2){ // from
+		return fixup_sgp(param);
+	}else if(param_no == 3){ // fromtag
+		return fixup_sgp(param);
+	}else if(param_no == 4){ // to
+		return fixup_sgp(param);
+	}else if(param_no == 5){ // totag
+		return fixup_sgp(param);
+	}else if(param_no == 6 || param_no == 7){ // sdp,other
+		return 0;
+	}else{			
+		LM_ERR("####### wrong number of parameters.\n");
+		return E_UNSPEC;
+	}
+}
+
+static param_export_t db_cache_params[] = {
+	{"db_file", 		STR_PARAM, &db_file},
 	{0,0,0}
 };
 
+
 static cmd_export_t cmds[] = {
-	{"store_fetch_test", (cmd_function)store_fetch_test_f, 3, fixup_param_func_store_test, 0, REQUEST_ROUTE|ONREPLY_ROUTE},
 	{"store_callid", (cmd_function)store_callid, 2, fixup_param_func_store_callid, 0, REQUEST_ROUTE|ONREPLY_ROUTE},
-	{"fetch_callid", (cmd_function)fetch_callid, 3, fixup_param_func_fetch_callid, 0, REQUEST_ROUTE|ONREPLY_ROUTE},
-	{"store_sip_info", (cmd_function)store_sip, 0, 0, 0, REQUEST_ROUTE|ONREPLY_ROUTE},
-	{"store_sip_info", (cmd_function)store_sip, 1, fixup_param_func_store_sip, 0, REQUEST_ROUTE|ONREPLY_ROUTE},
-	{"store_sip_info", (cmd_function)store_sip, 2, fixup_param_func_store_sip, 0, REQUEST_ROUTE|ONREPLY_ROUTE},
-	{"store_sip_info", (cmd_function)store_sip, 3, fixup_param_func_store_sip, 0, REQUEST_ROUTE|ONREPLY_ROUTE},
-	{"store_sip_info", (cmd_function)store_sip, 4, fixup_param_func_store_sip, 0, REQUEST_ROUTE|ONREPLY_ROUTE},
-	{"store_sip_info", (cmd_function)store_sip, 5, fixup_param_func_store_sip, 0, REQUEST_ROUTE|ONREPLY_ROUTE},
-	{"fetch_route", (cmd_function)fetch_route, 3, fixup_param_func_fetch, 0, REQUEST_ROUTE|ONREPLY_ROUTE},
-	{"fetch_pai", (cmd_function)fetch_pai, 3, fixup_param_func_fetch, 0, REQUEST_ROUTE|ONREPLY_ROUTE},
-	{"fetch_pani", (cmd_function)fetch_pani, 3, fixup_param_func_fetch, 0, REQUEST_ROUTE|ONREPLY_ROUTE},
-	{"fetch_ruser", (cmd_function)fetch_ruser, 3, fixup_param_func_fetch, 0, REQUEST_ROUTE|ONREPLY_ROUTE},
-	{"fetch_from", (cmd_function)fetch_from, 3, fixup_param_func_fetch, 0, REQUEST_ROUTE|ONREPLY_ROUTE},
-	{"fetch_to", (cmd_function)fetch_to, 3, fixup_param_func_fetch, 0, REQUEST_ROUTE|ONREPLY_ROUTE},
-	{"fetch_sdp", (cmd_function)fetch_sdp, 3, fixup_param_func_fetch, 0, REQUEST_ROUTE|ONREPLY_ROUTE},
-	{"fetch_other", (cmd_function)fetch_other, 3, fixup_param_func_fetch, 0, REQUEST_ROUTE|ONREPLY_ROUTE},
-	{0, 0, 0, 0, 0, 0}
+	{"fetch_callid", (cmd_function)fetch_callid, 2,fixup_param_func_fetch_callid,0, REQUEST_ROUTE|ONREPLY_ROUTE},
+	{"store_sdp", (cmd_function)store_sdp, 3,fixup_param_func_store_sdp,0, REQUEST_ROUTE|ONREPLY_ROUTE},
+	{"fetch_sdp", (cmd_function)fetch_sdp, 3,fixup_param_func_fetch_sdp,0, REQUEST_ROUTE|ONREPLY_ROUTE},
+	{"store_route", (cmd_function)store_route, 3,fixup_param_func_store_sdp,0, REQUEST_ROUTE|ONREPLY_ROUTE},
+	{"fetch_route", (cmd_function)fetch_route, 3,fixup_param_func_fetch_sdp,0, REQUEST_ROUTE|ONREPLY_ROUTE},
+	{"store_srcip", (cmd_function)store_srcip, 3,fixup_param_func_store_sdp,0, REQUEST_ROUTE|ONREPLY_ROUTE},
+	{"fetch_srcip", (cmd_function)fetch_srcip, 3,fixup_param_func_fetch_sdp,0, REQUEST_ROUTE|ONREPLY_ROUTE},
+	{"store_destip", (cmd_function)store_destip, 3,fixup_param_func_store_sdp,0, REQUEST_ROUTE|ONREPLY_ROUTE},
+	{"fetch_destip", (cmd_function)fetch_destip, 3,fixup_param_func_fetch_sdp,0, REQUEST_ROUTE|ONREPLY_ROUTE},
+	{"store_from", (cmd_function)store_from, 3,fixup_param_func_store_sdp,0, REQUEST_ROUTE|ONREPLY_ROUTE},
+	{"fetch_from", (cmd_function)fetch_from, 3,fixup_param_func_fetch_sdp,0, REQUEST_ROUTE|ONREPLY_ROUTE},
+	{"store_to", (cmd_function)store_to, 3,fixup_param_func_store_sdp,0, REQUEST_ROUTE|ONREPLY_ROUTE},
+	{"fetch_to", (cmd_function)fetch_to, 3,fixup_param_func_fetch_sdp,0, REQUEST_ROUTE|ONREPLY_ROUTE},
+	{"store_pai", (cmd_function)store_pai, 3,fixup_param_func_store_sdp,0, REQUEST_ROUTE|ONREPLY_ROUTE},
+	{"fetch_pai", (cmd_function)fetch_pai, 3,fixup_param_func_fetch_sdp,0, REQUEST_ROUTE|ONREPLY_ROUTE},
+	{"store_bypass", (cmd_function)store_bypass, 3,fixup_param_func_store_sdp,0, REQUEST_ROUTE|ONREPLY_ROUTE},
+	{"fetch_bypass", (cmd_function)fetch_bypass, 3,fixup_param_func_fetch_sdp,0, REQUEST_ROUTE|ONREPLY_ROUTE},
+	{"store_pani", (cmd_function)store_pani, 3,fixup_param_func_store_sdp,0, REQUEST_ROUTE|ONREPLY_ROUTE},
+	{"fetch_pani", (cmd_function)fetch_pani, 3,fixup_param_func_fetch_sdp,0, REQUEST_ROUTE|ONREPLY_ROUTE},
+	{"store_ruser", (cmd_function)store_ruser, 3,fixup_param_func_store_sdp,0, REQUEST_ROUTE|ONREPLY_ROUTE},
+	{"fetch_ruser", (cmd_function)fetch_ruser, 3,fixup_param_func_fetch_sdp,0, REQUEST_ROUTE|ONREPLY_ROUTE},
+
+	{"store_invite", (cmd_function)store_invite, 11,fixup_param_func_store_invite,0, REQUEST_ROUTE|ONREPLY_ROUTE},
+	//{"fetch_invite", (cmd_function)fetch_invite, 4,fixup_param_func_fetch_sdp,0, REQUEST_ROUTE|ONREPLY_ROUTE},
+	{"store_180", (cmd_function)store_180, 5,fixup_param_func_store_18x,0, REQUEST_ROUTE|ONREPLY_ROUTE},
+	//{"fetch_180", (cmd_function)fetch_180, 4,fixup_param_func_fetch_sdp,0, REQUEST_ROUTE|ONREPLY_ROUTE},
+	{"store_183", (cmd_function)store_183, 5,fixup_param_func_store_18x,0, REQUEST_ROUTE|ONREPLY_ROUTE},
+	//{"fetch_183", (cmd_function)fetch_183, 4,fixup_param_func_fetch_sdp,0, REQUEST_ROUTE|ONREPLY_ROUTE},
+	{"store_200", (cmd_function)store_200, 7,fixup_param_func_store_200,0, REQUEST_ROUTE|ONREPLY_ROUTE},
+	//{"fetch_200", (cmd_function)fetch_200, 4,fixup_param_func_fetch_sdp,0, REQUEST_ROUTE|ONREPLY_ROUTE},
+	{"store_update", (cmd_function)store_update, 5,fixup_param_func_store_18x,0, REQUEST_ROUTE|ONREPLY_ROUTE},
+	//{"fetch_update", (cmd_function)fetch_update, 4,fixup_param_func_fetch_sdp,0, REQUEST_ROUTE|ONREPLY_ROUTE},
+	{0,0,0,0,0,0}
 };
 
+/* Module interface */
 struct module_exports exports = {
-	"db_cache",
-	MOD_TYPE_DEFAULT,/*!< class of this module */
+	"db_cache", 		/* module name */
+	MOD_TYPE_DEFAULT,	/* class of this module */ 
 	MODULE_VERSION,
-	DEFAULT_DLFLAGS, /*!< dlopen flags */
-	0,				 /*!< load function */
-	0,           /*!< OpenSIPS module dependencies */
-	cmds,       /*!< Exported functions */
-	0,          /*!< Exported async functions */
-	params,     /*!< Export parameters */
-	0,  /*!< exported statistics */
-	0,    /*!< exported MI functions */
-	0,          /*!< exported pseudo-variables */
-	0,          /*!< exported transformations */
-	0,          /*!< extra processes */
-	mod_init,   /*!< Module initialization function */
-	0,          /*!< Response function */
-	destroy,    /*!< Destroy function */
-	0  /*!< Child initialization function */
+	DEFAULT_DLFLAGS,	/* dlopen flags */
+	0,			/* load function */
+	NULL,			/* OpenSIPs module dependencies */
+	cmds,			/* exported functions */
+	0,			/* exported async functions */
+	db_cache_params,	/* module parameters */
+	0,			/* exported statistics */
+	0,			/* exported MI functions */
+	0,			/* exported pseudo-variables */
+	0,			/* exported transformations */
+	0,			/* extra processes */
+	mod_init,		/* module initialization function */
+	0,			/* response function */
+	mod_destroy,			/* destroy function */
+	0,			/* per-child init function */
 };
+
+void lock_handle(const char* fun){
+	LM_INFO("P...in [%s]\n", fun);
+	sem_p(semid);
+}
+
+void unlock_handle(const char* fun){
+	LM_INFO("V...in [%s]\n", fun);
+	sem_v(semid);
+}
 
 static int mod_init(void)
 {
-	LM_INFO("Module db_cache loaded.\n");
+	LM_INFO("initializing...\n");
+	init_db();
 
-	/* init db keys_sip */
-	db_keys_sip[0] = &callid_column;
-	db_keys_sip[1] = &sipname_column;
-	db_keys_sip[2] = &srcip_column;
-	db_keys_sip[3] = &ruri_column;
-	db_keys_sip[4] = &ruser_column;
-	db_keys_sip[5] = &fromuri_column;
-	db_keys_sip[6] = &touri_column;
-	db_keys_sip[7] = &route_column;
-	db_keys_sip[8] = &sdp_column;
-	db_keys_sip[9] = &pai_column;
-	db_keys_sip[10] = &pani_column;
-	db_keys_sip[11] = &other_column;
-
-	/* init db_keys_callid */
-	db_keys_callid[0] = &incallid_column;
-	db_keys_callid[1] = &outcallid_column;
-
-	db_url.len = strlen(db_url.s);
-	if(db_url.s && db_url.len){
-		/* Find a database module */
-		if(db_bind_mod(&db_url, &db_funcs)){
-			LM_ERR("Unable to bind database module\n");
-			return -1;
-		}
-
-		/* Check db capabilities */
-		if(!DB_CAPABILITY(db_funcs, DB_CAP_QUERY)){
-			LM_ERR("Database modules does not provide all functions needed.\n");
-			return -1;
-		}
-		if(!DB_CAPABILITY(db_funcs, DB_CAP_INSERT)){
-			LM_ERR("Database modules does not provide all functions needed.\n");
-			return -1;
-		}
-		if(!DB_CAPABILITY(db_funcs, DB_CAP_DELETE)){
-			LM_ERR("Database modules does not provide all functions needed.\n");
-			return -1;
-		}
-		if(!DB_CAPABILITY(db_funcs, DB_CAP_UPDATE)){
-			LM_ERR("Database modules does not provide all functions needed.\n");
-			return -1;
-		}
-		if(!DB_CAPABILITY(db_funcs, DB_CAP_REPLACE)){
-			LM_ERR("Database modules does not provide all functions needed.\n");
-			return -1;
-		}
-		if(!DB_CAPABILITY(db_funcs, DB_CAP_FETCH)){
-			LM_ERR("Database modules does not provide all functions needed.\n");
-			return -1;
-		}
-		if(!DB_CAPABILITY(db_funcs, DB_CAP_MULTIPLE_INSERT)){
-			LM_ERR("Database modules does not provide all functions needed.\n");
-			return -1;
-		}
-	}else{
-		LM_ERR("db_url is not defined or empty.\n");
-		return -1;
-	}
-
-	/* Check the sip_table */
-	sip_table.len = strlen(sip_table.s);
-	if(!sip_table.len){
-		LM_ERR("sip_table is not defined or empty.\n");
-		return -1;
-	}
-
-	callid_table.len = strlen(callid_table.s);
-	if(!callid_table.len){
-		LM_ERR("callid_table is not defined or empty.\n");
-		return -1;
-	}
-
-	return 0;
-}
-
-static void destroy(void)
-{
-	// Nothing
-}
-
-static db_con_t* db_init(const str* db_url)
-{
-	if(!db_url || db_url->s == NULL || strcmp(db_url->s, "")==0 || db_url->len == 0){
-		LM_ERR("Failed to db_init in db_cache: db_url is NULL.\n");
-	}
-
-	if(db_funcs.init == 0){
-		LM_CRIT("Null database functions...\n");
-		goto Err;
-	}
-
-	db_con_t* db_con = db_funcs.init(db_url);
-	if(!db_con){
-		LM_ERR("Unable to connect database.\n");
-		goto Err;
-	}
-
-	return db_con;
-
-Err:
-	return NULL;
-}
-
-static void db_close(db_con_t* db_con)
-{
-	if(db_con && db_funcs.close){
-		//db_funcs.close(db_con);
-		//db_con = 0;
-	}
-}
-
-static int fixup_param_func_store_test(void** param, int param_no)
-{
-	switch(param_no){
-		case 1:
-		case 2:
-			return fixup_spve(param);
-		case 3:
-			return 0;
-		default:
-			LM_ERR("Uknown parameter.\n");
-			return E_UNSPEC;
-	}
-}
-
-static int fixup_param_func_store_callid(void** param, int param_no)
-{
-	switch(param_no){
-		case 1:
-		case 2:
-			return fixup_sgp(param);
-		default:
-			LM_ERR("Wrong number of parameter.\n");
-			return E_UNSPEC;
-	}
-}
-static int fixup_param_func_fetch_callid(void** param, int param_no)
-{
-	pv_spec_t* sp;
-	switch(param_no){
-		case 1:
-			return fixup_sgp(param);
-		case 2:
-			return 0;
-		case 3:
-			if(fixup_pvar(param) < 0){
-				LM_ERR("Failed to fix pvar.\n");
-				return -1;
-			}
-			sp = (pv_spec_t*)(*param);
-			if(!pv_is_w(sp)){
-				LM_ERR("Output pvar must be writable! (given:%d)\n", pv_type(sp->type));
-				return E_SCRIPT;
-			}
-			return 0;
-		default:
-			LM_ERR("Wrong number of parameter.\n");
-			return E_UNSPEC;
-	}
-}
-static int fixup_param_func_store_sip(void** param, int param_no)
-{
-	switch(param_no){
-		case 1:
-		case 2:
-		case 3:
-		case 4:
-		case 5:
-			return fixup_sgp(param);
-		default:
-			LM_ERR("Wrong number of parameter.\n");
-			return E_UNSPEC;
-	}
-}
-static int fixup_param_func_fetch(void** param, int param_no)
-{
-	pv_spec_t* sp;
-	switch(param_no){
-		case 1:
-			return fixup_sgp(param);
-		case 2:
-			return 0;
-		case 3:
-			if(fixup_pvar(param) < 0){
-				LM_ERR("Failed to fixup_pvar...\n");
-				return -1;
-			}
-			sp = (pv_spec_t*)(*param);
-			if(!pv_is_w(sp)){
-				LM_ERR("Output pvar must be writable! (given:%d)\n", pv_type(sp->type));
-				return E_SCRIPT;
-			}
-			return 0;
-		default:
-			LM_ERR("Wrong number of parameter.\n");
-			return E_UNSPEC;
-	}
-}
-
-static int fixup_callid_values(str* sin, str* sout, void**pval)
-{
-	if(!sin || !sout || !pval){
-		LM_ERR("Invalid parameters.\n");
-		return -1;
-	}
-
-	size_t size = sizeof(db_val_t) * NR_KEYS_CALLID;
-	db_val_t* pval_tmp = NULL;
-	pval_tmp = (db_val_t*)pkg_malloc(size);
-	if(!pval_tmp){
-		LM_ERR("Failed to malloc memory.\n");
-		return -1;
-	}
-
-	memset(pval_tmp, 0, size);
-	pval_tmp[0].type = DB_STR;
-	pval_tmp[0].val.str_val = *sin;
-	pval_tmp[0].nul = 0;
-
-	pval_tmp[1].type = DB_STR;
-	pval_tmp[1].val.str_val = *sout;
-
-	*pval = (void*)pval_tmp;
-
-	return 0;
-}
-
-static int set_output_val(struct sip_msg* _msg, db_res_t* res, char* ret)
-{
-	if(!res || !ret){
-		LM_ERR("Invalid parameters in set_output_val.\n");
-		return -1;
-	}
-
-	int i;
-	for(i = 0; i < RES_COL_N(res); ++i){
-		LM_INFO("@@@@@ %s ", RES_NAMES(res)[i]->s);
-	}
-
-	pv_spec_t* sp_dest;
-	pv_value_t value;
-	size_t len;
-
-	if(RES_ROW_N(res) > 0){
-		if(RES_COL_N(res) > 0){
-			if(RES_ROWS(res)[0].values[0].nul != 1){
-				LM_INFO("@@@@@@@@@ !!!!! [%s]\n", RES_ROWS(res)[0].values[0].val.string_val);
-				len = strlen(RES_ROWS(res)[0].values[0].val.string_val);
-				if(len > 0){
-					// warning: assignment discards 'const' qualifier from pointer target type
-					value.rs.s = strndup(RES_ROWS(res)[0].values[0].val.string_val, len); // need free manually???? 
-					value.rs.len = len;
-					value.flags = PV_VAL_STR;
-					sp_dest = (pv_spec_t*)ret;
-
-					if(pv_set_value(_msg, sp_dest, 0, &value) != 0){
-						LM_ERR("Failed to set_output_val.\n");
-						return -1;
-					}
-				}
-				//switch(RES_ROWS(res)[0].values[0].type){
-				//	case DB_STRING:
-				//		LM_INFO("@@@@@@@@@ !!!!! [%s]\n", RES_ROWS(res)[0].values[0].val.string_val);
-				//		break;
-				//	case DB_STR:
-				//		LM_INFO("@@@@@@@@@ !!!!! [%s]\n", RES_ROWS(res)[0].values[0].val.str_val.s);
-				//		break;
-				//}
-			}
-		}
-	}
-
-	return 0;
-}
-
-static int store_handle(str* table, db_key_t* keys, db_val_t* vals, int num_keys)
-{
-	if(!table || !keys || !vals || num_keys == 0){
-		LM_ERR("Invalid parameters.\n");
-		return -1;
-	}
-
-	db_con_t* db_con = db_init(&db_url);
-	if(!db_con){
-		LM_ERR("Failed to db_init.\n");
-		return -1;
-	}
-	LM_DBG("Get db_con [%p] in store_handle.\n", db_con);
-
-	// use table
-	if(db_funcs.use_table(db_con, table) < 0){
-		LM_ERR("Failed to use_table [%s].\n", table->s);
-		goto Err;
-	}
-
-	// execute
-	if(db_funcs.insert(db_con, keys, vals, num_keys) < 0){
-		LM_ERR("Failed to insert...\n");
-		goto Err;
-	}
-	
-	if(db_con){
-		db_close(db_con);
-		db_con = NULL;
+	semid = sem_init(proj_id);
+	if(semid == -1){
+		LM_ERR("Failed to create semid\n");
 	}
 	return 0;
-	
-Err:
-	if(db_con){
-		LM_DBG("Release db_con [%p] in store_handle.\n", db_con);
-		db_close(db_con);
-		db_con = NULL;
-	}
-	return -1;
 }
 
-static int fetch_handle(str* table, db_con_t* db_con, db_key_t* keys, db_op_t* ops, db_val_t* vals, db_key_t* cs, int n, int nc, db_res_t** res)
+void mod_destroy(void)
 {
-	if(!table || !keys || !vals || !cs || n == 0 || nc == 0 || !res){
-		LM_ERR("Invalid parameters.\n");
-		return -1;
-	}
-
-	/*
-	 * DEBUG PRINT
-	*/
-	int i;
-	LM_DBG("fetch_handle, table=[%.*s]\n", table->len, table->s);
-	for(i = 0; i < n; ++i){
-		LM_DBG("fetch_handle, keys[%d] = [%.*s] = [%.*s]\n", i, keys[i]->len, keys[i]->s, vals[i].val.str_val.len, vals[i].val.str_val.s);
-	}
-	for(i = 0; i < nc; ++i){
-		LM_DBG("fetch_handle, cs[%d] = [%.*s]\n", i, cs[i]->len, cs[i]->s);
-	}
-
-	// use table
-	if(db_funcs.use_table(db_con, table) < 0){
-		LM_ERR("Failed to use_table [%s]\n", table->s);
-		goto Err;
-	}
-
-	// execute
-	if(db_funcs.query(db_con, keys, ops, vals, cs, n, nc, NULL, res) < 0){
-		LM_ERR("Failed to query.\n");
-		goto Err;
-	}
-	LM_DBG("fetch_handle: RES_ROW_N(*res) = [%d]\n", RES_ROW_N(*res));
-	return 0;
-
-Err:
-	return -1;
-}
-
-/*! \brief
- * Test functions
- */
-static int store_fetch_test_f(struct sip_msg* _msg, const char* pvk, char* pvv, const char* num)
-{
-	if(!pvk || !pvv || !num){
-		return -1;
-	}
-
-	str spvk;
-	if(fixup_get_svalue(_msg, (gparam_p)pvk, &spvk) < 0){
-		LM_ERR("Bad value for 'pvk'\n");
-		return -1;
-	}else{
-		LM_INFO("(gparam_p)pvk->type = [%d]\n", ((gparam_p)pvk)->type); 
-	}
-
-	LM_INFO("pvk.s = [%s]\n", spvk.s);
-
-	return 1;
-
-}
-
-static int store_callid(struct sip_msg* _msg, const char* incallid, const char* outcallid)
-{
-	if(!incallid || !outcallid){
-		LM_ERR("Invalid parameters.\n");
-		return 1;
-	}
-
-	str sin, sout;
-	db_val_t* pvals = NULL;
-	int ret = 0;
-	if(fixup_get_svalue(_msg, (gparam_p)incallid, &sin) < 0){
-		LM_ERR("Bad value for 'incallid'\n");
-		goto End;
-	}
-	if(fixup_get_svalue(_msg, (gparam_p)outcallid, &sout) < 0){
-		LM_ERR("Bad value for 'outcallid'\n");
-		goto End;
-	}
-
-	// fixup_vals
-	ret = fixup_callid_values(&sin, &sout, (void**)&pvals);
-	if(ret < 0){
-		LM_ERR("Failed to fixup callid values.\n");
-		goto End;
-	}
-
-	ret = store_handle(&callid_table, db_keys_callid, pvals, NR_KEYS_CALLID);
-	if(ret < 0){
-		LM_ERR("Failed to store_handle_callid.\n");
-		goto End;
-	}
-
-End:
-	if(pvals){
-		pkg_free(pvals);
-		pvals = NULL;
-	}
-	return 1;
-}
-
-static int fetch_callid(struct sip_msg* _msg, const char* callid, const char* type, char* outputcallid)
-{
-	if(!callid || !type || !outputcallid){
-		LM_ERR("Invalid parameters.\n");
-		return 1;
-	}
-
-	int ret = 0;
-	str scallid;
-	int iType = atoi(type);
-	db_con_t* db_con = NULL;
-
-	db_key_t keys[1];
-	db_op_t* ops = NULL;
-	db_val_t vals[1];
-	db_key_t cs[1];
-	int n=1, nc = 1;
-	db_res_t* res = NULL;
-
-	if(iType < 0 || iType > 1){
-		LM_ERR("Invalid type.\n");
-		goto Err;
-	}
-
-	if(fixup_get_svalue(_msg, (gparam_p)callid, &scallid) < 0){
-		LM_ERR("Bad value for 'incallid'\n");
-		goto Err;
-	}
-
-	switch(iType){
-		case 0:// fetch in_callid
-			keys[0] = &outcallid_column;
-			cs[0] = &incallid_column;
-			break;
-		case 1:// fetch out_callid
-			keys[0] = &incallid_column;
-			cs[0] = &outcallid_column;
-			break;
-		default:
-			break;
-	}
-	vals[0].type = DB_STR;
-	vals[0].val.str_val = scallid;
-
-	db_con = db_init(&db_url);
-	if(!db_con){
-		LM_ERR("Failed to db_init.\n");
-		goto Err;
-	}
-	LM_DBG("Get db_con [%p] in fetch_callid.\n", db_con);
-	
-	ret = fetch_handle(&callid_table, db_con, keys, ops, vals, cs, n, nc, &res);
-	if(ret < 0){
-		LM_ERR("Failed to fetch_handle.\n");
-		goto Err;
-	}
-
-	ret = set_output_val(_msg, res, outputcallid);
-	if(ret < 0){
-		LM_ERR("Failed to set_output_val.\n");
-		goto Err;
-	}
-	
-Err:
-	if(ops){
-		pkg_free(ops);
-		ops = NULL;
-	}
-
-	if(res){
-		if(db_funcs.free_result){
-			db_funcs.free_result(db_con, res);
-		}
-		res = NULL;
-	}
-
-	if(db_con){
-		LM_DBG("Close db_con [%p] in fetch_callid.\n", db_con);
-		db_close(db_con);
-		db_con = NULL;
-	}
-
-	return 1;
-}
-
-static int store_sip(struct sip_msg* _msg, const char* src_ip, const char* route, const char* sdp, const char* pani, const char* other)
-{
-	sip_cache sc;
-	int i = 0;
-	int ret = 0;
-	struct sip_uri pai;
-
-	memset(&sc, 0, sizeof(sip_cache));
-	// sip_name/ruri/ruser
-	if(_msg->first_line.type == SIP_REQUEST){
-		if(parse_sip_msg_uri(_msg)<0){
-			LM_ERR("Failed to parse_sip_msg_uri...\n");
-			return 1;
-		}
-		sc.sip_name = _msg->first_line.u.request.method;
-		sc.ruri = _msg->first_line.u.request.uri;
-		sc.ruser = _msg->parsed_uri.user;
-	}else if(_msg->first_line.type == SIP_REPLY){
-		sc.sip_name = _msg->first_line.u.reply.status;
-		EMPTY_STR(sc.ruri);
-		EMPTY_STR(sc.ruser);
-	}else{
-		LM_ERR("Unkown type [%i]\n", _msg->first_line.type);
-		return 1;
-	}
-	// furi
-	if(_msg->from){
-		if(parse_from_header(_msg) == 0){
-			//sc.furi.s = _msg->from->parsed;
-			//sc.furi.len = strlen(_msg->from->parsed);
-			sc.furi = _msg->from->body;
-		}else{
-			EMPTY_STR(sc.furi);
-			LM_ERR("Failed to parse_from_header...\n");
-			return 1;
-		}
-	}
-	// callid
-	if(_msg->callid){
-		sc.callid = _msg->callid->body;
-	}else{
-		LM_ERR("No callid in msg...\n");
-		EMPTY_STR(sc.callid);
-		return 1;
-	}
-	// turi
-	if(_msg->to){
-		if(parse_to_header(_msg) == 0){
-			//sc.turi.s = _msg->to->parsed;
-			//sc.turi.len = strlen(_msg->to->parsed);
-			sc.turi = _msg->to->body;
-		}else{
-			EMPTY_STR(sc.turi);
-			LM_ERR("Failed to parse_to_header...\n");
-			return 1;
-		}
-	}
-	// pai
-	if(_msg->pai && (parse_pai_header(_msg) == 0)){
-		if (parse_uri(get_pai(_msg)->uri.s, get_pai(_msg)->uri.len, &pai)<0){
-			LM_DBG("bad pai...\n");
-		}else {
-			LM_DBG("PARSE PAI: (%.*s)\n",get_pai(_msg)->uri.len, get_pai(_msg)->uri.s);
-			sc.pai = get_pai(_msg)->uri;
-		}
-	}else{
-		EMPTY_STR(sc.pai);
-	}
-	// src_ip
-	if(src_ip && strcmp(src_ip, "") != 0){
-		if(fixup_get_svalue(_msg, (gparam_p)src_ip, &sc.src_ip) < 0){
-			LM_ERR("Bad value for 'src_ip'\n");
-			EMPTY_STR(sc.src_ip);
-			goto End;
-		}
-	}else{
-		EMPTY_STR(sc.src_ip);
-	}
-	// route
-	if(route && strcmp(route, "") != 0){
-		if(fixup_get_svalue(_msg, (gparam_p)route, &sc.route) < 0){
-			LM_ERR("Bad value for 'route'\n");
-			EMPTY_STR(sc.route);
-			goto End;
-		}
-	}else{
-		EMPTY_STR(sc.route);
-	}
-	// sdp
-	if(sdp && strcmp(sdp, "") != 0){
-		if(fixup_get_svalue(_msg, (gparam_p)sdp, &sc.sdp) < 0){
-			LM_ERR("Bad value for 'sdp'\n");
-			EMPTY_STR(sc.sdp);
-			goto End;
-		}
-	}else{
-		EMPTY_STR(sc.sdp);
-	}
-	// pani
-	if(pani && strcmp(pani, "") != 0){
-		if(fixup_get_svalue(_msg, (gparam_p)pani, &sc.pani) < 0){
-			LM_ERR("Bad value for 'pani'\n");
-			EMPTY_STR(sc.pani);
-			goto End;
-		}
-	}else{
-		EMPTY_STR(sc.pani);
-	}
-	// other
-	if(other && strcmp(other, "") != 0){
-		if(fixup_get_svalue(_msg, (gparam_p)other, &sc.other) < 0){
-			LM_ERR("Bad value for 'other'\n");
-			EMPTY_STR(sc.other);
-			goto End;
-		}
-	}else{
-		EMPTY_STR(sc.other);
-	}
-
-	db_val_t vals[NR_KEYS_SIP];
-	memset(vals, 0, sizeof(db_val_t) * NR_KEYS_SIP);
-
-	for(i = 0; i < NR_KEYS_SIP; ++i){
-		vals[i].type = DB_STR;
-	}
-	vals[0].val.str_val = sc.callid;
-	LM_INFO("callid = [%i][%s]\n", sc.callid.len, sc.callid.s);
-	vals[1].val.str_val = sc.sip_name;
-	LM_INFO("sip_name = [%i][%s]\n", sc.sip_name.len, sc.sip_name.s);
-	vals[2].val.str_val = sc.src_ip;
-	LM_INFO("src_ip = [%i][%s]\n", sc.src_ip.len, sc.src_ip.s);
-	vals[3].val.str_val = sc.ruri;
-	LM_INFO("ruri = [%i][%s]\n", sc.ruri.len, sc.ruri.s);
-	vals[4].val.str_val = sc.ruser;
-	LM_INFO("ruser = [%i][%s]\n", sc.ruser.len, sc.ruser.s);
-	vals[5].val.str_val = sc.furi;
-	LM_INFO("furi = [%i][%s]\n", sc.furi.len, sc.furi.s);
-	vals[6].val.str_val = sc.turi;
-	LM_INFO("turi = [%i][%s]\n", sc.turi.len, sc.turi.s);
-	vals[7].val.str_val = sc.route;
-	LM_INFO("route = [%i][%s]\n", sc.route.len, sc.route.s);
-	vals[8].val.str_val = sc.sdp;
-	LM_INFO("sdp = [%i][%s]\n", sc.sdp.len, sc.sdp.s);
-	vals[9].val.str_val = sc.pai;
-	LM_INFO("pai = [%i][%s]\n", sc.pai.len, sc.pai.s);
-	vals[10].val.str_val = sc.pani;
-	LM_INFO("pani = [%i][%s]\n", sc.pani.len, sc.pani.s);
-	vals[11].val.str_val = sc.other;
-	LM_INFO("other = [%i][%s]\n", sc.other.len, sc.other.s);
-
-	ret = store_handle(&sip_table, db_keys_sip, vals, NR_KEYS_SIP);
-	if(ret < 0){
-		LM_ERR("Failed to store_handle_callid.\n");
-		goto End;
-	}
-
-End:
-	return 1;
-}
-
-static int fetch_column(struct sip_msg* _msg, str* column, const char* callid, const char* sip_name, char* result)
-{
-	if(!callid || !column || !sip_name || !result){
-		LM_ERR("Invalid parameters.\n");
-		return 1;
-	}
-
-	if(strcmp(callid, "") == 0 || strcmp(sip_name, "") == 0){
-		LM_ERR("Invalid parameters.\n");
-		return 1;
-	}
-
-	int ret = 0;
-	str scallid, ssn;
-	db_con_t* db_con = NULL;
-
-	db_key_t keys[2];
-	db_op_t* ops = NULL;
-	db_val_t vals[2];
-	db_key_t cs[1];
-	int n=2, nc = 1;
-	db_res_t* res = NULL;
-
-
-	if(fixup_get_svalue(_msg, (gparam_p)callid, &scallid) < 0){
-		LM_ERR("Bad value for 'incallid'\n");
-		goto Err;
-	}
-
-	size_t len = strlen(sip_name);
-	ssn.s = strndup(sip_name, len);
-	ssn.len = len;
-
-	keys[0] = &callid_column;
-	keys[1] = &sipname_column;
-	cs[0] = column;
-
-	vals[0].type = DB_STR;
-	vals[0].val.str_val = scallid;
-	vals[1].type = DB_STR;
-	vals[1].val.str_val = ssn;
-
-	db_con = db_init(&db_url);
-	if(!db_con){
-		LM_ERR("Failed to db_init.\n");
-		goto Err;
-	}
-	LM_DBG("Get db_con [%p] in fetch_column.\n", db_con);
-	
-	ret = fetch_handle(&sip_table, db_con, keys, ops, vals, cs, n, nc, &res);
-	if(ret < 0){
-		LM_ERR("Failed to fetch_handle.\n");
-		goto Err;
-	}
-
-	ret = set_output_val(_msg, res, result);
-	if(ret < 0){
-		LM_ERR("Failed to set_output_val.\n");
-		goto Err;
-	}
-	
-Err:
-	if(ops){
-		pkg_free(ops);
-		ops = NULL;
-	}
-
-	if(res){
-		if(db_funcs.free_result){
-			db_funcs.free_result(db_con, res);
-		}
-		res = NULL;
-	}
-
-	if(db_con){
-		LM_DBG("Close db_con [%p] in fetch_column.\n", db_con);
-		db_close(db_con);
-		db_con = NULL;
-	}
-	return 1;
-}
-
-static int fetch_route(struct sip_msg* _msg, const char* callid, const char* sip_name, char* route)
-{
-	return fetch_column(_msg, &route_column, callid, sip_name, route);
-}
-
-static int fetch_pai(struct sip_msg* _msg, const char* callid, const char* sip_name, char* pai)
-{
-	return fetch_column(_msg, &pai_column, callid, sip_name, pai);
-}
-
-static int fetch_pani(struct sip_msg* _msg, const char* callid, const char* sip_name, char* pani)
-{
-	return fetch_column(_msg, &pani_column, callid, sip_name, pani);
-}
-
-static int fetch_ruser(struct sip_msg* _msg, const char* callid, const char* sip_name, char* ruser)
-{
-	return fetch_column(_msg, &ruser_column, callid, sip_name, ruser);
-}
-
-static int fetch_from(struct sip_msg* _msg, const char* callid, const char* sip_name, char* result)
-{
-	return fetch_column(_msg, &fromuri_column, callid, sip_name, result);
-}
-
-static int fetch_to(struct sip_msg* _msg, const char* callid, const char* sip_name, char* result)
-{
-	return fetch_column(_msg, &touri_column, callid, sip_name, result);
-}
-
-static int fetch_sdp(struct sip_msg* _msg, const char* callid, const char* sip_name, char* result)
-{
-	return fetch_column(_msg, &sdp_column, callid, sip_name, result);
-}
-
-static int fetch_other(struct sip_msg* _msg, const char* callid, const char* sip_name, char* result)
-{
-	return fetch_column(_msg, &other_column, callid, sip_name, result);
+	sem_destroy(semid);
 }
