@@ -221,7 +221,7 @@ char *get_svalue(struct sip_msg *_msg, gparam_p _str)
 	memset(s, 0x00, len+1);
 	memcpy(s, s0.s, len);
 	s[len] = '\0';
-	LM_INFO("###### s = [%s] with len [%d], type = [%d].\n", s,len, _str->type);
+	LM_DBG("###### s = [%s] with len [%d], type = [%d].\n", s,len, _str->type);
 
 	return s;
 }
@@ -235,7 +235,7 @@ int cb_query(void *data, int argc, char **argv, char **azColName)
 		if(len > 0){
 			memcpy(data, argv[0], len);	
 			((char *)data)[len]='\0';
-			LM_INFO("########## queried data [%s] with length [%zu].\n", (char *)data, len);
+			LM_DBG("########## queried data [%s] with length [%zu].\n", (char *)data, len);
 		}
 	}
 	return 0;
@@ -286,140 +286,140 @@ int init_db(void)
 	
 	sqlite3_exec(db, sql_create_tb_callid, NULL, NULL, &errMsg);
 	if(errMsg == NULL){
-		LM_INFO("###### Successed to create TABLE tb_callid.\n");
+		LM_DBG("###### Successed to create TABLE tb_callid.\n");
 	}else{
 		LM_ERR("####### Failed to create TABLE tb_callid, error msg [%s].\n", errMsg);
 	}
 
 	sqlite3_exec(db, sql_create_tb_sdpinvite, NULL, NULL, &errMsg);
 	if(errMsg == NULL){
-		LM_INFO("###### Successed to create TABLE tb_sdpinvite.\n");
+		LM_DBG("###### Successed to create TABLE tb_sdpinvite.\n");
 	}else{
 		LM_ERR("####### Failed to create TABLE tb_sdpinvite, error msg [%s].\n", errMsg);
 	}
 
 	sqlite3_exec(db, sql_create_tb_sdp200, NULL, NULL, &errMsg);
 	if(errMsg == NULL){
-		LM_INFO("###### Successed to create TABLE tb_sdp200.\n");
+		LM_DBG("###### Successed to create TABLE tb_sdp200.\n");
 	}else{
 		LM_ERR("####### Failed to create TABLE tb_sdp200, error msg [%s].\n", errMsg);
 	}
 
 	sqlite3_exec(db, sql_create_tb_sdp180, NULL, NULL, &errMsg);
 	if(errMsg == NULL){
-		LM_INFO("###### Successed to create TABLE tb_sdp180.\n");
+		LM_DBG("###### Successed to create TABLE tb_sdp180.\n");
 	}else{
 		LM_ERR("####### Failed to create TABLE tb_sdp180, error msg [%s].\n", errMsg);
 	}
 
 	sqlite3_exec(db, sql_create_tb_sdp183, NULL, NULL, &errMsg);
 	if(errMsg == NULL){
-		LM_INFO("###### Successed to create TABLE tb_sdp183.\n");
+		LM_DBG("###### Successed to create TABLE tb_sdp183.\n");
 	}else{
 		LM_ERR("####### Failed to create TABLE tb_sdp183, error msg [%s].\n", errMsg);
 	}
 
 	sqlite3_exec(db, sql_create_tb_routeinvite, NULL, NULL, &errMsg);
 	if(errMsg == NULL){
-		LM_INFO("###### Successed to create TABLE tb_routeinvite.\n");
+		LM_DBG("###### Successed to create TABLE tb_routeinvite.\n");
 	}else{
 		LM_ERR("####### Failed to create TABLE tb_routeinvite, error msg [%s].\n", errMsg);
 	}
 
 	sqlite3_exec(db, sql_create_tb_routecancel, NULL, NULL, &errMsg);
 	if(errMsg == NULL){
-		LM_INFO("###### Successed to create TABLE tb_routecancel.\n");
+		LM_DBG("###### Successed to create TABLE tb_routecancel.\n");
 	}else{
 		LM_ERR("####### Failed to create TABLE tb_routecancel, error msg [%s].\n", errMsg);
 	}
 
 	sqlite3_exec(db, sql_create_tb_srcipinvite, NULL, NULL, &errMsg);
 	if(errMsg == NULL){
-		LM_INFO("###### Successed to create TABLE tb_srcipinvite.\n");
+		LM_DBG("###### Successed to create TABLE tb_srcipinvite.\n");
 	}else{
 		LM_ERR("####### Failed to create TABLE tb_srcipinvite, error msg [%s].\n", errMsg);
 	}
 
 	sqlite3_exec(db, sql_create_tb_destipinvite, NULL, NULL, &errMsg);
 	if(errMsg == NULL){
-		LM_INFO("###### Successed to create TABLE tb_destipinvite.\n");
+		LM_DBG("###### Successed to create TABLE tb_destipinvite.\n");
 	}else{
 		LM_ERR("####### Failed to create TABLE tb_destipinvite, error msg [%s].\n", errMsg);
 	}
 
 	sqlite3_exec(db, sql_create_tb_frominvite, NULL, NULL, &errMsg);
 	if(errMsg == NULL){
-		LM_INFO("###### Successed to create TABLE tb_frominvite.\n");
+		LM_DBG("###### Successed to create TABLE tb_frominvite.\n");
 	}else{
 		LM_ERR("####### Failed to create TABLE tb_frominvite, error msg [%s].\n", errMsg);
 	}
 
 	sqlite3_exec(db, sql_create_tb_toinvite, NULL, NULL, &errMsg);
 	if(errMsg == NULL){
-		LM_INFO("###### Successed to create TABLE tb_toinvite.\n");
+		LM_DBG("###### Successed to create TABLE tb_toinvite.\n");
 	}else{
 		LM_ERR("####### Failed to create TABLE tb_toinvite, error msg [%s].\n", errMsg);
 	}
 
 	sqlite3_exec(db, sql_create_tb_pai, NULL, NULL, &errMsg);
 	if(errMsg == NULL){
-		LM_INFO("###### Successed to create TABLE tb_pai.\n");
+		LM_DBG("###### Successed to create TABLE tb_pai.\n");
 	}else{
 		LM_ERR("####### Failed to create TABLE tb_pai, error msg [%s].\n", errMsg);
 	}
 
 	sqlite3_exec(db, sql_create_tb_bypass, NULL, NULL, &errMsg);
 	if(errMsg == NULL){
-		LM_INFO("###### Successed to create TABLE tb_bypass.\n");
+		LM_DBG("###### Successed to create TABLE tb_bypass.\n");
 	}else{
 		LM_ERR("####### Failed to create TABLE tb_bypass, error msg [%s].\n", errMsg);
 	}
 
 	sqlite3_exec(db, sql_create_tb_pani, NULL, NULL, &errMsg);
 	if(errMsg == NULL){
-		LM_INFO("###### Successed to create TABLE tb_pani.\n");
+		LM_DBG("###### Successed to create TABLE tb_pani.\n");
 	}else{
 		LM_ERR("####### Failed to create TABLE tb_pani, error msg [%s].\n", errMsg);
 	}
 
 	sqlite3_exec(db, sql_create_tb_ruser, NULL, NULL, &errMsg);
 	if(errMsg == NULL){
-		LM_INFO("###### Successed to create TABLE tb_ruser.\n");
+		LM_DBG("###### Successed to create TABLE tb_ruser.\n");
 	}else{
 		LM_ERR("####### Failed to create TABLE tb_ruser, error msg [%s].\n", errMsg);
 	}
 
 	sqlite3_exec(db, sql_create_tb_invite, NULL, NULL, &errMsg);
 	if(errMsg == NULL){
-		LM_INFO("###### Successed to create TABLE tb_invite.\n");
+		LM_DBG("###### Successed to create TABLE tb_invite.\n");
 	}else{
 		LM_ERR("####### Failed to create TABLE tb_invite, error msg [%s].\n", errMsg);
 	}
 
 	sqlite3_exec(db, sql_create_tb_180, NULL, NULL, &errMsg);
 	if(errMsg == NULL){
-		LM_INFO("###### Successed to create TABLE tb_180.\n");
+		LM_DBG("###### Successed to create TABLE tb_180.\n");
 	}else{
 		LM_ERR("####### Failed to create TABLE tb_180, error msg [%s].\n", errMsg);
 	}
 		
 	sqlite3_exec(db, sql_create_tb_183, NULL, NULL, &errMsg);
 	if(errMsg == NULL){
-		LM_INFO("###### Successed to create TABLE tb_183.\n");
+		LM_DBG("###### Successed to create TABLE tb_183.\n");
 	}else{
 		LM_ERR("####### Failed to create TABLE tb_183, error msg [%s].\n", errMsg);
 	}
 
 	sqlite3_exec(db, sql_create_tb_200, NULL, NULL, &errMsg);
 	if(errMsg == NULL){
-		LM_INFO("###### Successed to create TABLE tb_200.\n");
+		LM_DBG("###### Successed to create TABLE tb_200.\n");
 	}else{
 		LM_ERR("####### Failed to create TABLE tb_200, error msg [%s].\n", errMsg);
 	}
 
 	sqlite3_exec(db, sql_create_tb_update, NULL, NULL, &errMsg);
 	if(errMsg == NULL){
-		LM_INFO("###### Successed to create TABLE tb_update.\n");
+		LM_DBG("###### Successed to create TABLE tb_update.\n");
 	}else{
 		LM_ERR("####### Failed to create TABLE tb_update, error msg [%s].\n", errMsg);
 	}
@@ -449,9 +449,9 @@ int store_callid(struct sip_msg *_msg, const char *incallid, const char *outcall
 	int 	retcode;
 	char 	*errMsg = "";
 
-	LM_INFO("######## _incallid,_outcallid = [%s,%s]\n", _incallid, _outcallid);
+	LM_DBG("######## _incallid,_outcallid = [%s,%s]\n", _incallid, _outcallid);
 	sprintf(sql, "INSERT INTO tb_callid (incallid, outcallid) VALUES ('%s', '%s')", _incallid, _outcallid);
-	LM_INFO("####### sql: [%s]\n", sql);
+	LM_DBG("####### sql: [%s]\n", sql);
 
 	lock_handle(__FUNCTION__);
 	retcode = sqlite3_open(db_file, &db);
@@ -463,7 +463,7 @@ int store_callid(struct sip_msg *_msg, const char *incallid, const char *outcall
 
 	sqlite3_exec(db, sql, NULL, NULL, &errMsg);
 	if(errMsg == NULL){
-		LM_INFO("###### Successed to INSERT...\n");
+		LM_DBG("###### Successed to INSERT...\n");
 	}else{
 		LM_ERR("####### Failed to INSERT...[%s]\n", errMsg);
 	}	
@@ -521,7 +521,7 @@ int fetch_callid(struct sip_msg *_msg, const char *onecallid, char *theothercall
 	}
 
 	sprintf(sql, "SELECT * FROM tb_callid WHERE incallid = '%s' or outcallid = '%s'", _onecallid, _onecallid);
-	LM_INFO("######## sql: [%s]\n", sql);
+	LM_DBG("######## sql: [%s]\n", sql);
 
 	
 	lock_handle(__FUNCTION__);
@@ -535,7 +535,7 @@ int fetch_callid(struct sip_msg *_msg, const char *onecallid, char *theothercall
 	//sqlite3_exec(db, sql, cb_query, (void*)data, &errMsg);
 	sqlite3_exec(db, sql, cb_query_callid, (void*)data, &errMsg);
 	if(errMsg == NULL){
-		LM_INFO("####### Successed to query.\n");
+		LM_DBG("####### Successed to query.\n");
 	}else{
 		LM_ERR("####### Failed to query [%s].\n", errMsg);
 	}
@@ -549,7 +549,7 @@ int fetch_callid(struct sip_msg *_msg, const char *onecallid, char *theothercall
 		goto Err;
 	}
 
-	LM_INFO("######### query data [%s]\n", pdata);
+	LM_DBG("######### query data [%s]\n", pdata);
 	value.rs.s = pdata;
 	value.rs.len = strlen(pdata);
 	value.flags = PV_VAL_STR;
@@ -624,7 +624,7 @@ int store_sdp(struct sip_msg *_msg, const char *callid,  const char *type, const
 	}else if(iType == 3){   /// tb_sdp200
 		sprintf(sql, "INSERT INTO tb_sdp200(callid, sdp) VALUES ('%s', '%s')", _callid, _sdp);
   }
-	LM_INFO("####### sql: [%s].\n", sql);
+	LM_DBG("####### sql: [%s].\n", sql);
 
 	lock_handle(__FUNCTION__);
 	retcode = sqlite3_open(db_file, &db);
@@ -636,7 +636,7 @@ int store_sdp(struct sip_msg *_msg, const char *callid,  const char *type, const
 
 	sqlite3_exec(db, sql, NULL, NULL, &errMsg);
 	if(errMsg == NULL){
-		LM_INFO("###### Successed to INSERT.\n");
+		LM_DBG("###### Successed to INSERT.\n");
 	}else{
 		LM_ERR("###### Failed to INSERT [%s].\n", errMsg);
 	}
@@ -697,7 +697,7 @@ int fetch_sdp(struct sip_msg *_msg, const char *callid, const char *type, char *
 	}else if(iType == 3){
                 sprintf(sql, "SELECT sdp FROM tb_sdp200 WHERE callid = '%s'", _callid);
         }
-	LM_INFO("####### sql: [%s].\n", sql);
+	LM_DBG("####### sql: [%s].\n", sql);
 
 	lock_handle(__FUNCTION__);
 	retcode = sqlite3_open(db_file, &db);
@@ -710,7 +710,7 @@ int fetch_sdp(struct sip_msg *_msg, const char *callid, const char *type, char *
 	memset(data, 0x00, sdp_len);
 	sqlite3_exec(db, sql, cb_query, (void*)data, &errMsg);
 	if(errMsg == NULL){
-		LM_INFO("##### Successed to query.\n");
+		LM_DBG("##### Successed to query.\n");
 	}else{
 		LM_ERR("###### Failed to query [%s].\n", errMsg);
 	}
@@ -784,7 +784,7 @@ static int store_route(struct sip_msg *_msg, const char *callid,  const char *ty
 		LM_ERR("###### Invalid Type[%d]\n", iType);
 		goto Err;
 	}
-	LM_INFO("####### sql: [%s].\n", sql);
+	LM_DBG("####### sql: [%s].\n", sql);
 
 	lock_handle(__FUNCTION__);
 	retcode = sqlite3_open(db_file, &db);
@@ -796,7 +796,7 @@ static int store_route(struct sip_msg *_msg, const char *callid,  const char *ty
 	sqlite3_exec(db, sql, NULL, NULL, &errMsg);
 	unlock_handle(__FUNCTION__);
 	if(errMsg == NULL){
-		LM_INFO("###### Successed to INSERT.\n");
+		LM_DBG("###### Successed to INSERT.\n");
 	}else{
 		LM_ERR("###### Failed to INSERT [%s].\n", errMsg);
 	}
@@ -856,7 +856,7 @@ static int fetch_route(struct sip_msg *_msg, const char *callid, const char *typ
 		LM_ERR("###### Invalid Type.[%d]\n", iType);
 		goto Err;
 	}
-	LM_INFO("####### sql: [%s].\n", sql);
+	LM_DBG("####### sql: [%s].\n", sql);
 
 	lock_handle(__FUNCTION__);
 	retcode = sqlite3_open(db_file, &db);
@@ -869,7 +869,7 @@ static int fetch_route(struct sip_msg *_msg, const char *callid, const char *typ
 	memset(data, 0x00, route_len);
 	sqlite3_exec(db, sql, cb_query, (void*)data, &errMsg);
 	if(errMsg == NULL){
-		LM_INFO("##### Successed to query.\n");
+		LM_DBG("##### Successed to query.\n");
 	}else{
 		LM_ERR("###### Failed to query [%s].\n", errMsg);
 	}
@@ -938,7 +938,7 @@ static int store_srcip(struct sip_msg *_msg, const char *callid,  const char *ty
 	// tb_srcipinvite
 	memset(sql, 0x00, sql_len);
 	sprintf(sql, "INSERT INTO tb_srcipinvite(callid, srcip) VALUES ('%s', '%s')", _callid, _srcip);
-	LM_INFO("####### sql: [%s].\n", sql);
+	LM_DBG("####### sql: [%s].\n", sql);
 
 	lock_handle(__FUNCTION__);
 	retcode = sqlite3_open(db_file, &db);
@@ -949,7 +949,7 @@ static int store_srcip(struct sip_msg *_msg, const char *callid,  const char *ty
 
 	sqlite3_exec(db, sql, NULL, NULL, &errMsg);
 	if(errMsg == NULL){
-		LM_INFO("###### Successed to INSERT.\n");
+		LM_DBG("###### Successed to INSERT.\n");
 	}else{
 		LM_ERR("###### Failed to INSERT [%s].\n", errMsg);
 	}
@@ -1002,7 +1002,7 @@ static int fetch_srcip(struct sip_msg *_msg, const char *callid, const char *typ
 
 	memset(sql, 0x00, sql_len);
 	sprintf(sql, "SELECT srcip FROM tb_srcipinvite WHERE callid = '%s'", _callid);
-	LM_INFO("####### sql: [%s].\n", sql);
+	LM_DBG("####### sql: [%s].\n", sql);
 
 	lock_handle(__FUNCTION__);
 	retcode = sqlite3_open(db_file, &db);
@@ -1015,7 +1015,7 @@ static int fetch_srcip(struct sip_msg *_msg, const char *callid, const char *typ
 	memset(data, 0x00, ip_len);
 	sqlite3_exec(db, sql, cb_query, (void*)data, &errMsg);
 	if(errMsg == NULL){
-		LM_INFO("##### Successed to query.\n");
+		LM_DBG("##### Successed to query.\n");
 	}else{
 		LM_ERR("###### Failed to query [%s].\n", errMsg);
 	}
@@ -1080,7 +1080,7 @@ static int store_destip(struct sip_msg *_msg, const char *callid,  const char *t
 	// tb_destipinvite
 	memset(sql, 0x00, sql_len);
 	sprintf(sql, "INSERT INTO tb_destipinvite(callid, destip) VALUES ('%s', '%s')", _callid, _destip);
-	LM_INFO("####### sql: [%s].\n", sql);
+	LM_DBG("####### sql: [%s].\n", sql);
 
 	lock_handle(__FUNCTION__);
 	retcode = sqlite3_open(db_file, &db);
@@ -1091,7 +1091,7 @@ static int store_destip(struct sip_msg *_msg, const char *callid,  const char *t
 
 	sqlite3_exec(db, sql, NULL, NULL, &errMsg);
 	if(errMsg == NULL){
-		LM_INFO("###### Successed to INSERT.\n");
+		LM_DBG("###### Successed to INSERT.\n");
 	}else{
 		LM_ERR("###### Failed to INSERT [%s].\n", errMsg);
 	}
@@ -1146,7 +1146,7 @@ static int fetch_destip(struct sip_msg *_msg, const char *callid, const char *ty
 
 	memset(sql, 0x00, sql_len);
 	sprintf(sql, "SELECT destip FROM tb_destipinvite WHERE callid = '%s'", _callid);
-	LM_INFO("####### sql: [%s].\n", sql);
+	LM_DBG("####### sql: [%s].\n", sql);
 
 	lock_handle(__FUNCTION__);
 	retcode = sqlite3_open(db_file, &db);
@@ -1159,7 +1159,7 @@ static int fetch_destip(struct sip_msg *_msg, const char *callid, const char *ty
 	memset(data, 0x00, ip_len);
 	sqlite3_exec(db, sql, cb_query, (void*)data, &errMsg);
 	if(errMsg == NULL){
-		LM_INFO("##### Successed to query.\n");
+		LM_DBG("##### Successed to query.\n");
 	}else{
 		LM_ERR("###### Failed to query [%s].\n", errMsg);
 	}
@@ -1224,7 +1224,7 @@ static int store_from(struct sip_msg *_msg, const char *callid,  const char *typ
 	// tb_frominvite
 	memset(sql, 0x00, sql_len);
 	sprintf(sql, "INSERT INTO tb_frominvite(callid, _from) VALUES ('%s', '%s')", _callid, _from);
-	LM_INFO("####### sql: [%s].\n", sql);
+	LM_DBG("####### sql: [%s].\n", sql);
 
 	lock_handle(__FUNCTION__);
 	retcode = sqlite3_open(db_file, &db);
@@ -1235,7 +1235,7 @@ static int store_from(struct sip_msg *_msg, const char *callid,  const char *typ
 
 	sqlite3_exec(db, sql, NULL, NULL, &errMsg);
 	if(errMsg == NULL){
-		LM_INFO("###### Successed to INSERT.\n");
+		LM_DBG("###### Successed to INSERT.\n");
 	}else{
 		LM_ERR("###### Failed to INSERT [%s].\n", errMsg);
 	}
@@ -1289,7 +1289,7 @@ static int fetch_from(struct sip_msg *_msg, const char *callid, const char *type
 
 	memset(sql, 0x00, sql_len);
 	sprintf(sql, "SELECT _from FROM tb_frominvite WHERE callid = '%s'", _callid);
-	LM_INFO("####### sql: [%s].\n", sql);
+	LM_DBG("####### sql: [%s].\n", sql);
 
 	lock_handle(__FUNCTION__);
 	retcode = sqlite3_open(db_file, &db);
@@ -1302,7 +1302,7 @@ static int fetch_from(struct sip_msg *_msg, const char *callid, const char *type
 	memset(data, 0x00, from_len);
 	sqlite3_exec(db, sql, cb_query, (void*)data, &errMsg);
 	if(errMsg == NULL){
-		LM_INFO("##### Successed to query.\n");
+		LM_DBG("##### Successed to query.\n");
 	}else{
 		LM_ERR("###### Failed to query [%s].\n", errMsg);
 	}
@@ -1367,7 +1367,7 @@ static int store_to(struct sip_msg *_msg, const char *callid,  const char *type,
 	// tb_toinvite
 	memset(sql, 0x00, sql_len);
 	sprintf(sql, "INSERT INTO tb_toinvite(callid, _to) VALUES ('%s', '%s')", _callid, _to);
-	LM_INFO("####### sql: [%s].\n", sql);
+	LM_DBG("####### sql: [%s].\n", sql);
 
 	lock_handle(__FUNCTION__);
 	retcode = sqlite3_open(db_file, &db);
@@ -1378,7 +1378,7 @@ static int store_to(struct sip_msg *_msg, const char *callid,  const char *type,
 
 	sqlite3_exec(db, sql, NULL, NULL, &errMsg);
 	if(errMsg == NULL){
-		LM_INFO("###### Successed to INSERT.\n");
+		LM_DBG("###### Successed to INSERT.\n");
 	}else{
 		LM_ERR("###### Failed to INSERT [%s].\n", errMsg);
 	}
@@ -1431,7 +1431,7 @@ static int fetch_to(struct sip_msg *_msg, const char *callid, const char *type, 
 
 	memset(sql, 0x00, sql_len);
 	sprintf(sql, "SELECT _to FROM tb_toinvite WHERE callid = '%s'", _callid);
-	LM_INFO("####### sql: [%s].\n", sql);
+	LM_DBG("####### sql: [%s].\n", sql);
 
 
 	lock_handle(__FUNCTION__);
@@ -1445,7 +1445,7 @@ static int fetch_to(struct sip_msg *_msg, const char *callid, const char *type, 
 	memset(data, 0x00, to_len);
 	sqlite3_exec(db, sql, cb_query, (void*)data, &errMsg);
 	if(errMsg == NULL){
-		LM_INFO("##### Successed to query.\n");
+		LM_DBG("##### Successed to query.\n");
 	}else{
 		LM_ERR("###### Failed to query [%s].\n", errMsg);
 	}
@@ -1510,7 +1510,7 @@ static int store_pai(struct sip_msg *_msg, const char *callid,  const char *type
 	// tb_pai
 	memset(sql, 0x00, sql_len);
 	sprintf(sql, "INSERT INTO tb_pai(callid, pai) VALUES ('%s', '%s')", _callid, _pai);
-	LM_INFO("####### sql: [%s].\n", sql);
+	LM_DBG("####### sql: [%s].\n", sql);
 
 	lock_handle(__FUNCTION__);
 	retcode = sqlite3_open(db_file, &db);
@@ -1521,7 +1521,7 @@ static int store_pai(struct sip_msg *_msg, const char *callid,  const char *type
 
 	sqlite3_exec(db, sql, NULL, NULL, &errMsg);
 	if(errMsg == NULL){
-		LM_INFO("###### Successed to INSERT.\n");
+		LM_DBG("###### Successed to INSERT.\n");
 	}else{
 		LM_ERR("###### Failed to INSERT [%s].\n", errMsg);
 	}
@@ -1574,7 +1574,7 @@ static int fetch_pai(struct sip_msg *_msg, const char *callid, const char *type,
 
 	memset(sql, 0x00, sql_len);
 	sprintf(sql, "SELECT pai FROM tb_pai WHERE callid = '%s'", _callid);
-	LM_INFO("####### sql: [%s].\n", sql);
+	LM_DBG("####### sql: [%s].\n", sql);
 
 	lock_handle(__FUNCTION__);
 	retcode = sqlite3_open(db_file, &db);
@@ -1587,7 +1587,7 @@ static int fetch_pai(struct sip_msg *_msg, const char *callid, const char *type,
 	memset(data, 0x00, pai_len);
 	sqlite3_exec(db, sql, cb_query, (void*)data, &errMsg);
 	if(errMsg == NULL){
-		LM_INFO("##### Successed to query.\n");
+		LM_DBG("##### Successed to query.\n");
 	}else{
 		LM_ERR("###### Failed to query [%s].\n", errMsg);
 	}
@@ -1652,7 +1652,7 @@ static int store_bypass(struct sip_msg *_msg, const char *callid,  const char *t
 	// tb_bypass
 	memset(sql, 0x00, sql_len);
 	sprintf(sql, "INSERT INTO tb_bypass(callid, bypass) VALUES ('%s', '%s')", _callid, _bypass);
-	LM_INFO("####### sql: [%s].\n", sql);
+	LM_DBG("####### sql: [%s].\n", sql);
 
 	lock_handle(__FUNCTION__);
 	retcode = sqlite3_open(db_file, &db);
@@ -1663,7 +1663,7 @@ static int store_bypass(struct sip_msg *_msg, const char *callid,  const char *t
 
 	sqlite3_exec(db, sql, NULL, NULL, &errMsg);
 	if(errMsg == NULL){
-		LM_INFO("###### Successed to INSERT.\n");
+		LM_DBG("###### Successed to INSERT.\n");
 	}else{
 		LM_ERR("###### Failed to INSERT [%s].\n", errMsg);
 	}
@@ -1716,7 +1716,7 @@ static int fetch_bypass(struct sip_msg *_msg, const char *callid, const char *ty
 
 	memset(sql, 0x00, sql_len);
 	sprintf(sql, "SELECT bypass FROM tb_bypass WHERE callid = '%s'", _callid);
-	LM_INFO("####### sql: [%s].\n", sql);
+	LM_DBG("####### sql: [%s].\n", sql);
 
 	lock_handle(__FUNCTION__);
 	retcode = sqlite3_open(db_file, &db);
@@ -1729,7 +1729,7 @@ static int fetch_bypass(struct sip_msg *_msg, const char *callid, const char *ty
 	memset(data, 0x00, bypass_len);
 	sqlite3_exec(db, sql, cb_query, (void*)data, &errMsg);
 	if(errMsg == NULL){
-		LM_INFO("##### Successed to query.\n");
+		LM_DBG("##### Successed to query.\n");
 	}else{
 		LM_ERR("###### Failed to query [%s].\n", errMsg);
 	}
@@ -1794,7 +1794,7 @@ static int store_pani(struct sip_msg *_msg, const char *callid,  const char *typ
 	// tb_pani
 	memset(sql, 0x00, sql_len);
 	sprintf(sql, "INSERT INTO tb_pani(callid, pani) VALUES ('%s', '%s')", _callid, _pani);
-	LM_INFO("####### sql: [%s].\n", sql);
+	LM_DBG("####### sql: [%s].\n", sql);
 
 	lock_handle(__FUNCTION__);
 	retcode = sqlite3_open(db_file, &db);
@@ -1805,7 +1805,7 @@ static int store_pani(struct sip_msg *_msg, const char *callid,  const char *typ
 
 	sqlite3_exec(db, sql, NULL, NULL, &errMsg);
 	if(errMsg == NULL){
-		LM_INFO("###### Successed to INSERT.\n");
+		LM_DBG("###### Successed to INSERT.\n");
 	}else{
 		LM_ERR("###### Failed to INSERT [%s].\n", errMsg);
 	}
@@ -1858,7 +1858,7 @@ static int fetch_pani(struct sip_msg *_msg, const char *callid, const char *type
 
 	memset(sql, 0x00, sql_len);
 	sprintf(sql, "SELECT pani FROM tb_pani WHERE callid = '%s'", _callid);
-	LM_INFO("####### sql: [%s].\n", sql);
+	LM_DBG("####### sql: [%s].\n", sql);
 
 	lock_handle(__FUNCTION__);
 	retcode = sqlite3_open(db_file, &db);
@@ -1871,7 +1871,7 @@ static int fetch_pani(struct sip_msg *_msg, const char *callid, const char *type
 	memset(data, 0x00, pani_len);
 	sqlite3_exec(db, sql, cb_query, (void*)data, &errMsg);
 	if(errMsg == NULL){
-		LM_INFO("##### Successed to query.\n");
+		LM_DBG("##### Successed to query.\n");
 	}else{
 		LM_ERR("###### Failed to query [%s].\n", errMsg);
 	}
@@ -1936,7 +1936,7 @@ static int store_ruser(struct sip_msg *_msg, const char *callid,  const char *ty
 	// tb_ruser
 	memset(sql, 0x00, sql_len);
 	sprintf(sql, "INSERT INTO tb_ruser(callid, ruser) VALUES ('%s', '%s')", _callid, _ruser);
-	LM_INFO("####### sql: [%s].\n", sql);
+	LM_DBG("####### sql: [%s].\n", sql);
 
 	lock_handle(__FUNCTION__);
 	retcode = sqlite3_open(db_file, &db);
@@ -1947,7 +1947,7 @@ static int store_ruser(struct sip_msg *_msg, const char *callid,  const char *ty
 
 	sqlite3_exec(db, sql, NULL, NULL, &errMsg);
 	if(errMsg == NULL){
-		LM_INFO("###### Successed to INSERT.\n");
+		LM_DBG("###### Successed to INSERT.\n");
 	}else{
 		LM_ERR("###### Failed to INSERT [%s].\n", errMsg);
 	}
@@ -2000,7 +2000,7 @@ static int fetch_ruser(struct sip_msg *_msg, const char *callid, const char *typ
 
 	memset(sql, 0x00, sql_len);
 	sprintf(sql, "SELECT ruser FROM tb_ruser WHERE callid = '%s'", _callid);
-	LM_INFO("####### sql: [%s].\n", sql);
+	LM_DBG("####### sql: [%s].\n", sql);
 
 	lock_handle(__FUNCTION__);
 	retcode = sqlite3_open(db_file, &db);
@@ -2013,7 +2013,7 @@ static int fetch_ruser(struct sip_msg *_msg, const char *callid, const char *typ
 	memset(data, 0x00, ruser_len);
 	sqlite3_exec(db, sql, cb_query, (void*)data, &errMsg);
 	if(errMsg == NULL){
-		LM_INFO("##### Successed to query.\n");
+		LM_DBG("##### Successed to query.\n");
 	}else{
 		LM_ERR("###### Failed to query [%s].\n", errMsg);
 	}
@@ -2083,7 +2083,7 @@ static int store_invite(struct sip_msg *_msg, const char *callid, const char *sr
 			 VALUES ('%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s')",
 			_callid, _srcip, _ruri, _from, _to, _route, _sdp, _pai, _bypass, _servicetype, _other);
 
-	LM_INFO("####### sql: [%s].\n", sql);
+	LM_DBG("####### sql: [%s].\n", sql);
 
 	lock_handle(__FUNCTION__);
 	retcode = sqlite3_open(db_file, &db);
@@ -2155,7 +2155,7 @@ static int store_180(struct sip_msg *_msg, const char *callid, const char *from,
 			 VALUES ('%s', '%s', '%s', '%s', '%s')",
 			_callid, _from, _to, _sdp, _other);
 
-	LM_INFO("####### sql: [%s].\n", sql);
+	LM_DBG("####### sql: [%s].\n", sql);
 
 	lock_handle(__FUNCTION__);
 	retcode = sqlite3_open(db_file, &db);
@@ -2225,7 +2225,7 @@ static int store_183(struct sip_msg *_msg, const char *callid, const char *from,
 			 VALUES ('%s', '%s', '%s', '%s', '%s')",
 			_callid, _from, _to, _sdp, _other);
 
-	LM_INFO("####### sql: [%s].\n", sql);
+	LM_DBG("####### sql: [%s].\n", sql);
 
 	lock_handle(__FUNCTION__);
 	retcode = sqlite3_open(db_file, &db);
@@ -2293,7 +2293,7 @@ static int store_200(struct sip_msg *_msg, const char *callid, const char *from,
 			 VALUES ('%s', '%s', '%s', '%s', '%s', '%s', '%s')",
 			_callid, _from, _fromtag, _to, _totag, _sdp, _other);
 
-	LM_INFO("####### sql: [%s].\n", sql);
+	LM_DBG("####### sql: [%s].\n", sql);
 
 	lock_handle(__FUNCTION__);
 	retcode = sqlite3_open(db_file, &db);
@@ -2366,7 +2366,7 @@ static int store_update(struct sip_msg *_msg, const char *callid, const char *fr
 			 VALUES ('%s', '%s', '%s', '%s', '%s')",
 			_callid, _from, _to, _sdp, _other);
 
-	LM_INFO("####### sql: [%s].\n", sql);
+	LM_DBG("####### sql: [%s].\n", sql);
 
 	lock_handle(__FUNCTION__);
 	retcode = sqlite3_open(db_file, &db);
@@ -2602,18 +2602,18 @@ struct module_exports exports = {
 };
 
 void lock_handle(const char* fun){
-	LM_INFO("P...in [%s]\n", fun);
+	LM_DBG("P...in [%s]\n", fun);
 	sem_p(semid);
 }
 
 void unlock_handle(const char* fun){
-	LM_INFO("V...in [%s]\n", fun);
+	LM_DBG("V...in [%s]\n", fun);
 	sem_v(semid);
 }
 
 static int mod_init(void)
 {
-	LM_INFO("initializing...\n");
+	LM_DBG("initializing...\n");
 	init_db();
 
 	semid = sem_init(proj_id);
