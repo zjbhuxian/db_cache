@@ -36,12 +36,14 @@ int sem_init(int proj_id)
 		if(semid == -1){
 			LM_ERR("Semget Error.\n");
 		}
+		LM_INFO("SEMID Already exists [%d]\n", semid);
 	}else{
 		union semun a;
 		a.val = 1;
 		if(semctl(semid, 0, SETVAL, a) == -1){
 			LM_ERR("Semctl init error.\n");
 		}
+		LM_INFO("New SEMID created [%d]\n", semid);
 	}
 
 	return semid;

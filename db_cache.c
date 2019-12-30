@@ -1234,7 +1234,6 @@ static int store_from(struct sip_msg *_msg, const char *callid,  const char *typ
 	}
 
 	sqlite3_exec(db, sql, NULL, NULL, &errMsg);
-	unlock_handle(__FUNCTION__);
 	if(errMsg == NULL){
 		LM_INFO("###### Successed to INSERT.\n");
 	}else{
@@ -1253,6 +1252,7 @@ Err:
 		sql = NULL;
 	}
 	sqlite3_close(db);
+	unlock_handle(__FUNCTION__);
 
 	return 1;
 }
@@ -1377,7 +1377,6 @@ static int store_to(struct sip_msg *_msg, const char *callid,  const char *type,
 	}
 
 	sqlite3_exec(db, sql, NULL, NULL, &errMsg);
-	unlock_handle(__FUNCTION__);
 	if(errMsg == NULL){
 		LM_INFO("###### Successed to INSERT.\n");
 	}else{
@@ -2329,6 +2328,7 @@ Err:
 		sql = NULL;
 	}
 	sqlite3_close(db);
+	unlock_handle(__FUNCTION__);
 	return 1;
 }
 
