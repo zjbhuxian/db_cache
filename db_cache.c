@@ -6,7 +6,6 @@
 #include <string.h>
 #include <stdlib.h>
 #include <pthread.h>
-#include <sys/syscall.h> // for syscall
 #include "../../mod_fix.h"
 #include "../../mem/mem.h"
 #include "../../pvar.h"
