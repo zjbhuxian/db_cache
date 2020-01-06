@@ -5,5 +5,5 @@
 include ../../Makefile.defs
 auto_gen=
 NAME=db_cache.so
-LIBS=-lsqlite3 -lpthread
+LIBS=-lhiredis -lpthread
 include ../../Makefile.modules
