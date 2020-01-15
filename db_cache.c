@@ -220,8 +220,8 @@ static int fetch_handle(struct sip_msg* _msg, const str* callid, const char* typ
 	}
 
 	if(!fetched_val){
-		LM_ERR(">>>ERR: Fatched nothing in %s\n", __FUNCTION__);
-		ret = -1;
+		LM_WARN(">>>WARNING: Fatched nothing in %s\n", __FUNCTION__);
+		ret = 0;
 		goto Err;
 	}
 
@@ -384,7 +384,7 @@ int fetch_callid(struct sip_msg *_msg, const char *onecallid, char *theothercall
 	}
 
 	if(!retval){
-		LM_ERR(">>>ERR: Got nothing from redis via key [%s]\n", str_onecallid->s);
+		LM_WARN(">>>WARNING: Got nothing from redis via key [%s]\n", str_onecallid->s);
 		goto Err;
 	}else{
 		LM_DBG(">>>DBG: get data [%s] from redis in %s\n", retval, __FUNCTION__);

@@ -836,7 +836,8 @@ int redis_get(redisContext* ctx, const str* key, char** retval)
 			(*retval)[ret_len] = '\0';
 		}
 	}else{
-		LM_ERR(">>>ERR: Failed to get [%s]\n", key->s); // key->s with null-terminated
+		LM_WARN(">>>WARNING: Got nothing by key [%s]\n", key->s); // key->s with null-terminated
+		ret = 0;
 		*retval = NULL;
 	}
 

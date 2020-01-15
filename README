@@ -1,0 +1,6 @@
+# db_cache via redis
+
+### fetures
+* multi-thread
+* redis pool
+* retry
