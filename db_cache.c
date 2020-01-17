@@ -1,5 +1,5 @@
 /** =================================================================
- * For store/fetch information of SIP via DB sqlite3
+ * For store/fetch information of SIP via redis
  * Created by zhou at 2019
  * ==================================================================*/
 #include "../../sr_module.h"
@@ -12,7 +12,7 @@
 #include "redisHelper.h"
 
 static int mod_init(void); /* Module initialization function */
-void mod_destroy(void); /* Module initialization function */
+void mod_destroy(void); /* Module destroy function */
 
 str* mystr_dup(const str* srcstr);
 str* make_key(const str* callid, const char* type, const char* hname);
